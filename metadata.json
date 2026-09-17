@@ -1,0 +1,8 @@
+{
+  "name": "DON'T BLINK",
+  "description": "A fast, addictive-to-master browser arcade game. Play, beat your score, and challenge your friends.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
