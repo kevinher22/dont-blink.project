@@ -13,6 +13,7 @@ import { renderCharacter, CharacterAction } from './characterRenderer';
 import { sound } from '../services/audio';
 import { story } from '../services/storyManager';
 import { storage } from '../services/storage';
+import { securityService, RunSession } from '../services/security';
 import { drawRoundRect } from '../utils/canvasHelper';
 import { renderConsistentEntity } from './entityVisuals';
 
@@ -53,7 +54,8 @@ export interface GameCallbacks {
     durationSec: number,
     distance: number,
     newEndingId: string | null,
-    newFragments: string[]
+    newFragments: string[],
+    runSessionId?: string
   ) => void;
   onNewRecord: (score: number) => void;
   onAchievementProgress: (event: string, value: number) => void;
@@ -106,6 +108,7 @@ export class GameEngine {
   private shadowEntityDistance: number = -500; // Entity has disappeared after opening chase
   private currentDangerPhase: 'DAY' | 'SUNSET' | 'NIGHT' | 'NEON' = 'DAY';
   private activeEncounter: ActiveEntityEncounter | null = null;
+  private encounterCooldown: number = 0;
   private encounteredMilestones: Set<string> = new Set();
 
   // Entities
@@ -120,6 +123,7 @@ export class GameEngine {
   // Screen shake & FX
   private shakeIntensity: number = 0;
   private animClock: number = 0;
+  private currentRunSession: RunSession | null = null;
 
   // Settings Cache
   private reducedMotion: boolean = false;
@@ -248,9 +252,11 @@ export class GameEngine {
   public triggerEncounter(type: EntityEncounterType): void {
     if (this.state !== 'PLAYING') return;
 
-    // Do not overwrite an existing active encounter unless it's LOOK_BACK_REVEAL
-    if (this.activeEncounter && type !== 'F_LOOK_BACK_REVEAL') {
-      return;
+    // Do not overwrite an existing active encounter or trigger during cooldown unless it's an intentional player LOOK_BACK_REVEAL
+    if (type !== 'F_LOOK_BACK_REVEAL') {
+      if (this.activeEncounter || this.encounterCooldown > 0) {
+        return;
+      }
     }
 
     const groundY = GAME_CONSTANTS.GROUND_Y;
@@ -481,6 +487,7 @@ export class GameEngine {
     this.isLookBackAvailable = false;
     this.shadowEntityDistance = -500;
     this.activeEncounter = null;
+    this.encounterCooldown = 6.0; // Give a grace period before encounters begin
     this.encounteredMilestones.clear();
 
     this.obstacles = [];
@@ -494,6 +501,9 @@ export class GameEngine {
     story.resetRunState();
     sound.setMusicMood('NORMAL');
 
+    // Create unique, non-reusable run session ticket
+    this.currentRunSession = securityService.createRunSession();
+
     this.lastTime = performance.now();
     this.animFrameId = requestAnimationFrame(this.loop);
 
@@ -501,16 +511,34 @@ export class GameEngine {
   }
 
   public pause(): void {
+    if (this.isPaused) return;
     this.isPaused = true;
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    // Render one crisp paused frame
+    this.render();
   }
 
   public resume(): void {
     if (this.isPaused) {
       this.isPaused = false;
       this.lastTime = performance.now();
-      if (!this.animFrameId) {
+      if (!this.animFrameId && this.isRunning) {
         this.animFrameId = requestAnimationFrame(this.loop);
       }
+    }
+  }
+
+  public handleVisibilityChange(isVisible: boolean): void {
+    if (!isVisible) {
+      if (this.isRunning && !this.isPaused) {
+        this.pause();
+      }
+    } else {
+      this.setupCanvasDimensions();
+      this.lastTime = performance.now();
     }
   }
 
@@ -554,19 +582,21 @@ export class GameEngine {
   // --- Main Loop ---
 
   private loop = (timestamp: number): void => {
-    if (!this.isRunning) return;
+    if (!this.isRunning || this.isPaused) {
+      this.animFrameId = null;
+      return;
+    }
 
     const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
     this.lastTime = timestamp;
 
-    if (!this.isPaused) {
-      this.update(dt);
-    }
-
+    this.update(dt);
     this.render();
 
-    if (this.isRunning) {
+    if (this.isRunning && !this.isPaused) {
       this.animFrameId = requestAnimationFrame(this.loop);
+    } else {
+      this.animFrameId = null;
     }
   };
 
@@ -668,7 +698,13 @@ export class GameEngine {
         // When encounter expires: ENTITY DISAPPEARS
         if (enc.timer >= enc.duration) {
           this.activeEncounter = null;
+          this.encounterCooldown = 12.0; // Cooldown before another apparition can spontaneously trigger
         }
+      }
+
+      // Decay encounter cooldown
+      if (this.encounterCooldown > 0) {
+        this.encounterCooldown -= effectiveDt;
       }
 
       // 2. Score progression
@@ -1195,6 +1231,7 @@ export class GameEngine {
       this.maxComboThisRun
     );
 
+    const sessionId = this.currentRunSession?.sessionId;
     setTimeout(() => {
       this.callbacks.onGameOver(
         Math.floor(this.score),
@@ -1203,7 +1240,8 @@ export class GameEngine {
         this.runDuration,
         Math.floor(this.distanceTraveled),
         newlyUnlockedEnding,
-        newlyUnlockedFragments
+        newlyUnlockedFragments,
+        sessionId
       );
     }, 450);
   }

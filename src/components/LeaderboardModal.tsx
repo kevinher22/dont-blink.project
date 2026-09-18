@@ -1,63 +1,312 @@
-import React, { useEffect, useState } from 'react';
-import { X, BarChart2, Award, Clock, Flame, Coins } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  X,
+  Globe,
+  Award,
+  Clock,
+  Flame,
+  Coins,
+  RefreshCw,
+  User,
+  Check,
+  Edit2,
+  Wifi,
+  WifiOff,
+  Navigation,
+} from 'lucide-react';
 import { LeaderboardEntry } from '../types';
-import { leaderboardService } from '../services/leaderboard';
+import {
+  leaderboardService,
+  OnlineLeaderboardEntry,
+} from '../services/leaderboard';
 import { sound } from '../services/audio';
+import { i18n } from '../services/i18n';
 
 interface LeaderboardModalProps {
   onClose: () => void;
 }
 
 export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) => {
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const lang = i18n.getLanguage();
+  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'LOCAL'>('GLOBAL');
+  const [localEntries, setLocalEntries] = useState<LeaderboardEntry[]>([]);
+  const [globalEntries, setGlobalEntries] = useState<OnlineLeaderboardEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [playerName, setPlayerName] = useState(leaderboardService.getPlayerName());
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(playerName);
+  const isOnline = leaderboardService.isOnline();
 
-  useEffect(() => {
-    leaderboardService.getTopScores().then(setEntries);
+  const loadScores = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [local, global] = await Promise.all([
+        leaderboardService.getTopScores(25),
+        leaderboardService.getGlobalTopScores(30),
+      ]);
+      setLocalEntries(local);
+      setGlobalEntries(global);
+    } catch {
+      // Fallback
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    loadScores();
+  }, [loadScores]);
+
+  const handleSaveName = (e: React.FormEvent) => {
+    e.preventDefault();
+    sound.playClick();
+    const clean = leaderboardService.setPlayerName(tempName);
+    setPlayerName(clean);
+    setTempName(clean);
+    setIsEditingName(false);
+  };
+
   return (
-    <div id="leaderboard-modal" className="absolute inset-0 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md z-30 select-none">
-      <div className="w-full max-w-md bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col max-h-[90vh]">
+    <div
+      id="leaderboard-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md select-none"
+    >
+      <div className="w-full max-w-lg bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
         {/* Header */}
         <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-emerald-400" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <Globe className="w-5 h-5 animate-spin-slow" />
+            </div>
             <div>
-              <h2 className="text-xl font-black text-white uppercase font-['Chakra_Petch'] tracking-wider">
-                PERSONAL HALL OF FAME
+              <h2 className="text-xl font-black text-white uppercase font-['Chakra_Petch'] tracking-wider flex items-center gap-2">
+                <span>{lang === 'id' ? 'PAPAN PERINGKAT' : 'LEADERBOARD'}</span>
+                {isOnline ? (
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    ONLINE
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 flex items-center gap-1">
+                    <WifiOff className="w-3 h-3 text-slate-500" />
+                    LOCAL
+                  </span>
+                )}
               </h2>
-              <span className="text-[10px] text-emerald-400/90 font-bold uppercase tracking-wider block">
-                LOCAL RECORDS
+              <span className="text-[10px] text-cyan-400 font-mono tracking-wider block">
+                {lang === 'id' ? 'REKOR GLOBAL & PERSONAL' : 'GLOBAL & LOCAL HALL OF FAME'}
               </span>
             </div>
           </div>
 
+          <div className="flex items-center gap-2">
+            <button
+              id="btn-refresh-leaderboard"
+              type="button"
+              onClick={() => {
+                sound.playClick();
+                loadScores();
+              }}
+              disabled={isLoading}
+              title="Refresh"
+              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-cyan-400' : ''}`} />
+            </button>
+
+            <button
+              id="btn-close-leaderboard"
+              type="button"
+              onClick={() => {
+                sound.playClick();
+                onClose();
+              }}
+              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Player Name Profile Bar */}
+        <div className="my-3 px-3 py-2 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-2">
+          {isEditingName ? (
+            <form onSubmit={handleSaveName} className="flex items-center gap-2 w-full">
+              <input
+                type="text"
+                value={tempName}
+                maxLength={20}
+                onChange={(e) => setTempName(e.target.value)}
+                placeholder="Callsign (1-20 chars)"
+                className="flex-1 bg-slate-900 border border-cyan-500/50 rounded-xl px-3 py-1 text-sm font-mono text-white focus:outline-none focus:border-cyan-400"
+                autoFocus
+              />
+              <button
+                type="submit"
+                className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{lang === 'id' ? 'Simpan' : 'Save'}</span>
+              </button>
+            </form>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <User className="w-4 h-4 text-cyan-400" />
+                <span className="text-slate-400">{lang === 'id' ? 'Nama Pelari:' : 'Callsign:'}</span>
+                <span className="text-white font-bold tracking-wide">{playerName}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  setTempName(playerName);
+                  setIsEditingName(true);
+                }}
+                className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-500/30"
+              >
+                <Edit2 className="w-3 h-3" />
+                <span>{lang === 'id' ? 'Ubah' : 'Change'}</span>
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <button
-            id="btn-close-leaderboard"
             type="button"
             onClick={() => {
               sound.playClick();
-              onClose();
+              setActiveTab('GLOBAL');
             }}
-            className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'GLOBAL'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm'
+                : 'bg-slate-950/50 text-slate-400 border border-slate-800 hover:bg-slate-900'
+            }`}
           >
-            <X className="w-5 h-5" />
+            <Globe className="w-3.5 h-3.5" />
+            <span>{lang === 'id' ? 'GLOBAL ONLINE' : 'GLOBAL LEADERBOARD'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              sound.playClick();
+              setActiveTab('LOCAL');
+            }}
+            className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'LOCAL'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-sm'
+                : 'bg-slate-950/50 text-slate-400 border border-slate-800 hover:bg-slate-900'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5" />
+            <span>{lang === 'id' ? 'REKOR PRIBADI' : 'PERSONAL BESTS'}</span>
           </button>
         </div>
 
-        {/* Notice of local architecture ready for online switch */}
-        <div className="my-3 px-3.5 py-2 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] text-emerald-300">
-          Showing your top personal runs saved on this device. Ready for global online leaderboard sync in v2!
-        </div>
+        {/* List Content */}
+        <div className="overflow-y-auto pr-1 space-y-2 flex-1 max-h-[54vh]">
+          {activeTab === 'GLOBAL' ? (
+            globalEntries.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-xs font-mono space-y-2">
+                <Wifi className="w-8 h-8 text-slate-600 mx-auto" />
+                <p>
+                  {isOnline
+                    ? lang === 'id'
+                      ? 'Belum ada rekor online. Jadilah yang pertama mencapai puncak!'
+                      : 'No online records yet. Be the first to reach the summit!'
+                    : lang === 'id'
+                    ? 'Menghubungkan ke server global... Cek tab Rekor Pribadi untuk riwayat offline.'
+                    : 'Awaiting online configuration. Switch to Personal Bests for local history.'}
+                </p>
+              </div>
+            ) : (
+              globalEntries.map((entry, idx) => {
+                const rank = idx + 1;
+                const isCurrentPlayer =
+                  entry.player_name.toLowerCase() === playerName.toLowerCase();
 
-        {/* Top 5 list */}
-        <div className="overflow-y-auto pr-1 space-y-2 max-h-[58vh]">
-          {entries.length === 0 ? (
-            <div className="py-12 text-center text-slate-500 text-sm">
-              No runs recorded yet. Jump into a game to claim your first record!
+                return (
+                  <div
+                    key={entry.id || `global-${idx}`}
+                    id={`global-record-${rank}`}
+                    className={`p-3 rounded-2xl border flex items-center justify-between transition-all ${
+                      rank === 1
+                        ? 'bg-gradient-to-r from-amber-500/20 via-slate-900 to-slate-900 border-amber-500/50 shadow-md'
+                        : isCurrentPlayer
+                        ? 'bg-cyan-950/40 border-cyan-500/50'
+                        : 'bg-slate-950/60 border-slate-850'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm font-['Chakra_Petch'] shrink-0 ${
+                          rank === 1
+                            ? 'bg-amber-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+                            : rank === 2
+                            ? 'bg-slate-300 text-slate-950'
+                            : rank === 3
+                            ? 'bg-amber-700 text-white'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        #{rank}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-sm sm:text-base font-extrabold font-['Chakra_Petch'] tracking-wide ${
+                              isCurrentPlayer ? 'text-cyan-300' : 'text-white'
+                            }`}
+                          >
+                            {entry.player_name || 'Anonymous Runner'}
+                          </span>
+                          {isCurrentPlayer && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
+                              YOU
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono">
+                          <span className="flex items-center gap-0.5 text-cyan-400">
+                            <Navigation className="w-2.5 h-2.5" /> {entry.distance || 0}m
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5 text-slate-500" /> {entry.run_duration || 0}s
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end">
+                      <span className="text-sm sm:text-base font-black font-['Chakra_Petch'] text-amber-400">
+                        {entry.score.toLocaleString()}
+                      </span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase">
+                        {lang === 'id' ? 'POIN' : 'PTS'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )
+          ) : localEntries.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 text-xs font-mono space-y-2">
+              <Award className="w-8 h-8 text-slate-600 mx-auto" />
+              <p>
+                {lang === 'id'
+                  ? 'Belum ada rekaman lokal. Mulai pelarian untuk mencetak skor!'
+                  : 'No local runs recorded yet. Start running to set your record!'}
+              </p>
             </div>
           ) : (
-            entries.map((entry, idx) => {
+            localEntries.map((entry, idx) => {
               const rank = idx + 1;
               const dateStr = new Date(entry.timestamp).toLocaleDateString(undefined, {
                 month: 'short',
@@ -67,18 +316,18 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
               return (
                 <div
                   key={entry.id}
-                  id={`record-entry-${rank}`}
-                  className={`p-3.5 rounded-2xl border flex items-center justify-between transition-all ${
+                  id={`local-record-${rank}`}
+                  className={`p-3 rounded-2xl border flex items-center justify-between transition-all ${
                     rank === 1
                       ? 'bg-gradient-to-r from-amber-500/15 via-slate-900 to-slate-900 border-amber-500/50 shadow-md'
-                      : 'bg-slate-950/60 border-slate-800'
+                      : 'bg-slate-950/60 border-slate-850'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm font-['Chakra_Petch'] ${
+                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm font-['Chakra_Petch'] shrink-0 ${
                         rank === 1
-                          ? 'bg-amber-500 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+                          ? 'bg-amber-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
                           : rank === 2
                           ? 'bg-slate-300 text-slate-950'
                           : rank === 3
@@ -90,16 +339,16 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                     </div>
 
                     <div>
-                      <div className="text-base font-extrabold text-white font-['Chakra_Petch']">
+                      <div className="text-sm sm:text-base font-extrabold text-white font-['Chakra_Petch']">
                         {entry.score.toLocaleString()}
                       </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                        <span className="flex items-center gap-0.5">
-                          <Flame className="w-3 h-3 text-cyan-400" /> x{entry.combo}
+                      <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono">
+                        <span className="flex items-center gap-0.5 text-cyan-400">
+                          <Flame className="w-2.5 h-2.5" /> x{entry.combo}
                         </span>
                         <span>•</span>
                         <span className="flex items-center gap-0.5">
-                          <Clock className="w-3 h-3 text-slate-500" /> {Math.round(entry.durationSeconds)}s
+                          <Clock className="w-2.5 h-2.5 text-slate-500" /> {Math.round(entry.durationSeconds)}s
                         </span>
                         <span>•</span>
                         <span>{dateStr}</span>
@@ -107,7 +356,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 text-xs font-bold text-amber-400 bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-800">
+                  <div className="flex items-center gap-1 text-xs font-bold text-amber-400 bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-800 font-mono">
                     <Coins className="w-3 h-3" />
                     <span>+{entry.coinsEarned}</span>
                   </div>

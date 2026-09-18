@@ -332,14 +332,47 @@ export function getTranslations(lang: Language = 'id'): Translations {
   return translations[lang] || translations.id;
 }
 
-let currentLang: Language = 'id';
+function getInitialLanguage(): Language {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem('dont_blink_save_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.settings?.language === 'en' || parsed?.settings?.language === 'id') {
+          return parsed.settings.language;
+        }
+      }
+    } catch {
+      // Fallback to default
+    }
+  }
+  // NEW USER: Indonesian immediately on first render!
+  return 'id';
+}
+
+let currentLang: Language = getInitialLanguage();
+
+type LanguageChangeListener = (lang: Language) => void;
+const listeners: Set<LanguageChangeListener> = new Set();
 
 export const i18n = {
   getLanguage(): Language {
     return currentLang;
   },
   setLanguage(lang: Language): void {
+    if (lang !== 'id' && lang !== 'en') return;
     currentLang = lang;
+    listeners.forEach((fn) => {
+      try {
+        fn(lang);
+      } catch (err) {
+        console.error('Error in language listener', err);
+      }
+    });
+  },
+  subscribe(fn: LanguageChangeListener): () => void {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
   },
   t(key: keyof Translations, lang?: Language): string {
     return t(key, lang || currentLang);

@@ -1,5 +1,6 @@
 import { GameSaveData, SkinId, UserSettings, LeaderboardEntry, DailyChallenge, StoryState, EndingId } from '../types';
 import { GAME_CONSTANTS } from '../game/constants';
+import { securityService } from './security';
 
 const STORAGE_KEY = 'dont_blink_save_v1';
 const CURRENT_VERSION = 2;
@@ -124,16 +125,19 @@ class DataManager {
           : [],
       };
 
+      const sanitized = securityService.sanitizeLoadedSaveData(
+        {
+          ...parsed,
+          settings,
+          stats,
+          story,
+        },
+        DEFAULT_SAVE_DATA
+      );
+
       return {
-        ...DEFAULT_SAVE_DATA,
-        ...parsed,
+        ...sanitized,
         version: CURRENT_VERSION,
-        settings,
-        stats,
-        story,
-        unlockedSkins: Array.isArray(parsed.unlockedSkins) && parsed.unlockedSkins.length > 0
-          ? parsed.unlockedSkins
-          : ['default'],
         achievements: parsed.achievements || {},
         history: Array.isArray(parsed.history) ? parsed.history : [],
       };
@@ -150,7 +154,12 @@ class DataManager {
   public save(): void {
     if (this.storageAvailable) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.inMemoryCache));
+        const sig = securityService.computeSaveChecksum(this.inMemoryCache);
+        const payload = {
+          ...this.inMemoryCache,
+          _sig: sig,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (e) {
         console.warn("DON'T BLINK: Could not persist to localStorage", e);
       }
@@ -158,8 +167,10 @@ class DataManager {
   }
 
   public updateBestScore(score: number): boolean {
-    if (score > this.inMemoryCache.bestScore) {
-      this.inMemoryCache.bestScore = Math.floor(score);
+    if (!Number.isFinite(score) || score < 0) return false;
+    const clampedScore = Math.min(5000000, Math.floor(score));
+    if (clampedScore > this.inMemoryCache.bestScore) {
+      this.inMemoryCache.bestScore = clampedScore;
       this.save();
       return true;
     }
@@ -167,8 +178,10 @@ class DataManager {
   }
 
   public addCoins(amount: number): number {
-    this.inMemoryCache.coins = Math.max(0, this.inMemoryCache.coins + amount);
-    this.inMemoryCache.stats.totalCoinsCollected += amount;
+    if (!Number.isFinite(amount) || amount <= 0) return this.inMemoryCache.coins;
+    const cleanAmount = Math.min(10000, Math.floor(amount));
+    this.inMemoryCache.coins = Math.min(999999, this.inMemoryCache.coins + cleanAmount);
+    this.inMemoryCache.stats.totalCoinsCollected += cleanAmount;
     this.save();
     return this.inMemoryCache.coins;
   }

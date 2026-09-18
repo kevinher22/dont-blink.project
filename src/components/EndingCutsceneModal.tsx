@@ -377,7 +377,11 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
         </motion.div>
 
         {/* Subtle, Non-Intrusive Cinematic Subtitles */}
-        <div className="absolute bottom-3 sm:bottom-6 left-3 sm:left-6 right-3 sm:right-6 z-20 flex flex-col items-center pointer-events-none">
+        <div
+          className={`absolute left-3 sm:left-6 right-3 sm:right-6 z-20 flex flex-col items-center pointer-events-none transition-all duration-300 ${
+            isFinished ? 'bottom-16 sm:bottom-20' : 'bottom-4 sm:bottom-7'
+          }`}
+        >
           <AnimatePresence mode="wait">
             {activeDialogue && (
               <motion.div
@@ -386,7 +390,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
-                className="max-w-[92%] sm:max-w-xl bg-black/60 backdrop-blur-md border border-white/15 rounded-2xl sm:rounded-full px-4 py-2 sm:px-6 sm:py-2.5 shadow-2xl text-center pointer-events-auto"
+                className="max-w-[92%] sm:max-w-xl bg-black/75 backdrop-blur-md border border-white/20 rounded-2xl sm:rounded-full px-4 py-2.5 sm:px-6 sm:py-3 shadow-2xl text-center pointer-events-auto"
               >
                 <p className="text-slate-100 font-sans text-xs sm:text-sm md:text-base leading-relaxed whitespace-pre-line italic font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">
                   "{lang === 'id' ? activeDialogue.id : activeDialogue.en}"
@@ -396,7 +400,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
           </AnimatePresence>
         </div>
 
-        {/* Action Button: Appears cleanly after dialogue and visual finish */}
+        {/* Action Button: Appears cleanly after dialogue and visual finish with zero overlap */}
         <AnimatePresence>
           {isFinished && (
             <motion.div
@@ -404,7 +408,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35, ease: 'easeOut' }}
-              className="absolute bottom-3 sm:bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-auto"
+              className="absolute bottom-4 sm:bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-auto"
             >
               <button
                 id="btn-continue-after-ending"
@@ -413,7 +417,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
                   sound.playClick();
                   onClose();
                 }}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-mono font-bold tracking-wider text-xs sm:text-sm transition-all shadow-xl cursor-pointer ${
+                className={`flex items-center gap-2 px-7 py-2.5 rounded-full font-mono font-bold tracking-wider text-xs sm:text-sm transition-all shadow-xl cursor-pointer ${
                   isTrueEnding
                     ? 'bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 shadow-amber-500/30 animate-pulse'
                     : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/30 animate-pulse'

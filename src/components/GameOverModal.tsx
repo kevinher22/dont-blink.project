@@ -11,6 +11,7 @@ import {
   BookOpen,
   Eye,
   ArrowRight,
+  Globe,
 } from 'lucide-react';
 import { sound } from '../services/audio';
 import { i18n } from '../services/i18n';
@@ -31,6 +32,7 @@ interface GameOverModalProps {
   onOpenAchievements: () => void;
   onOpenStoryJournal?: () => void;
   onOpenEndings?: () => void;
+  onOpenLeaderboard?: () => void;
   onWatchEndingCutscene?: (ending: GameEnding) => void;
   onBackToMenu: () => void;
 }
@@ -49,6 +51,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onOpenAchievements,
   onOpenStoryJournal,
   onOpenEndings,
+  onOpenLeaderboard,
   onWatchEndingCutscene,
   onBackToMenu,
 }) => {
@@ -242,25 +245,44 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </span>
         </button>
 
-        {/* Share Score Button */}
-        <button
-          id="btn-share-score"
-          type="button"
-          onClick={handleShare}
-          className="w-full mt-2.5 py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 cursor-pointer"
-        >
-          {copied ? (
-            <>
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span className="text-emerald-400">{i18n.t('copiedToClipboard')}</span>
-            </>
-          ) : (
-            <>
-              <Share2 className="w-4 h-4 text-cyan-400" />
-              <span>{i18n.t('shareScore')}</span>
-            </>
+        {/* Action Row: Leaderboard & Share */}
+        <div className="w-full grid grid-cols-2 gap-2 mt-2.5">
+          {onOpenLeaderboard && (
+            <button
+              id="btn-result-leaderboard"
+              type="button"
+              onClick={() => {
+                sound.playClick();
+                onOpenLeaderboard();
+              }}
+              className="py-2.5 px-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 text-cyan-300 hover:text-white border border-cyan-500/40 font-bold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Globe className="w-4 h-4 text-cyan-400" />
+              <span>{lang === 'id' ? 'PERINGKAT' : 'RANKS'}</span>
+            </button>
           )}
-        </button>
+
+          <button
+            id="btn-share-score"
+            type="button"
+            onClick={handleShare}
+            className={`py-2.5 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-slate-200 hover:text-white border border-slate-700 font-bold text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              !onOpenLeaderboard ? 'col-span-2' : ''
+            }`}
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="text-emerald-400">{i18n.t('copiedToClipboard')}</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-4 h-4 text-cyan-400" />
+                <span>{i18n.t('shareScore')}</span>
+              </>
+            )}
+          </button>
+        </div>
 
         {/* Secondary Navigation Row */}
         <div className="w-full grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-800/80">

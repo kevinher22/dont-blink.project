@@ -8,6 +8,40 @@ class SoundSystem {
   private musicInterval: number | null = null;
   private musicStep = 0;
   private currentMood: MusicMood = 'NORMAL';
+  private gestureListenerAttached = false;
+
+  constructor() {
+    this.setupUserGestureListener();
+  }
+
+  public setupUserGestureListener(): void {
+    if (this.gestureListenerAttached || typeof window === 'undefined') return;
+    this.gestureListenerAttached = true;
+
+    const unlock = () => {
+      const ctx = this.initCtx();
+      if (ctx && ctx.state === 'suspended') {
+        ctx
+          .resume()
+          .then(() => {
+            if (this.isMusicEnabled() && !this.isMusicPlaying) {
+              this.startMusic();
+            }
+          })
+          .catch(() => {});
+      } else if (this.isMusicEnabled() && !this.isMusicPlaying) {
+        this.startMusic();
+      }
+
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+
+    window.addEventListener('pointerdown', unlock, { passive: true, once: true });
+    window.addEventListener('keydown', unlock, { passive: true, once: true });
+    window.addEventListener('touchstart', unlock, { passive: true, once: true });
+  }
 
   private initCtx(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -605,9 +639,35 @@ class SoundSystem {
   }
 
   public startMusic(): void {
-    if (!this.isMusicEnabled() || this.isMusicPlaying) return;
+    if (!this.isMusicEnabled()) {
+      this.stopMusic();
+      return;
+    }
+
     const ctx = this.initCtx();
     if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      this.setupUserGestureListener();
+      ctx
+        .resume()
+        .then(() => {
+          if (this.isMusicEnabled() && (!this.isMusicPlaying || this.musicInterval === null)) {
+            this.startMusic();
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
+    if (this.isMusicPlaying && this.musicInterval !== null) {
+      return;
+    }
+
+    if (this.musicInterval !== null) {
+      clearInterval(this.musicInterval);
+      this.musicInterval = null;
+    }
 
     try {
       this.isMusicPlaying = true;
@@ -742,6 +802,34 @@ class SoundSystem {
       this.startMusic();
     } else {
       this.stopMusic();
+    }
+  }
+
+  public handleVisibilityChange(isVisible: boolean): void {
+    if (!isVisible) {
+      // App backgrounded: Stop interval cleanly so it doesn't queue up
+      if (this.musicInterval !== null) {
+        clearInterval(this.musicInterval);
+        this.musicInterval = null;
+      }
+      this.isMusicPlaying = false;
+      if (this.ctx && this.ctx.state === 'running') {
+        this.ctx.suspend().catch(() => {});
+      }
+    } else {
+      // App foregrounded: Resume context and restart BGM if enabled
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx
+          .resume()
+          .then(() => {
+            if (this.isMusicEnabled()) {
+              this.startMusic();
+            }
+          })
+          .catch(() => {});
+      } else if (this.isMusicEnabled()) {
+        this.startMusic();
+      }
     }
   }
 }

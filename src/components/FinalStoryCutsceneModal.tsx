@@ -282,13 +282,17 @@ export const FinalStoryCutsceneModal: React.FC<FinalStoryCutsceneModalProps> = (
 
         {/* Subtitle / Dialogue box at bottom */}
         {(currentShot.dialogueId || currentShot.dialogueEn) && (
-          <div className="absolute bottom-6 left-6 right-6 z-20 flex flex-col items-center pointer-events-auto">
+          <div
+            className={`absolute left-4 sm:left-6 right-4 sm:right-6 z-20 flex flex-col items-center pointer-events-auto transition-all duration-300 ${
+              isLastShot ? 'bottom-20 sm:bottom-24' : 'bottom-6'
+            }`}
+          >
             <motion.div
               key={currentShotIndex}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
-              className="w-full max-w-2xl bg-black/80 backdrop-blur-md border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl text-center space-y-2"
+              className="w-full max-w-2xl bg-black/85 backdrop-blur-md border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xl text-center space-y-2"
             >
               <p className="text-slate-100 font-sans text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-line italic font-medium">
                 {lang === 'id' ? currentShot.dialogueId : currentShot.dialogueEn}
@@ -299,12 +303,12 @@ export const FinalStoryCutsceneModal: React.FC<FinalStoryCutsceneModalProps> = (
 
         {/* Final Continue Button on the last shot */}
         {isLastShot && (
-          <div className="absolute bottom-8 left-0 right-0 flex justify-center z-30 pointer-events-auto">
+          <div className="absolute bottom-5 sm:bottom-7 left-0 right-0 flex justify-center z-30 pointer-events-auto">
             <button
               id="btn-finish-final-cutscene"
               type="button"
               onClick={handleFinish}
-              className="flex items-center gap-2 px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono tracking-wider text-sm shadow-xl shadow-amber-500/30 transition-all cursor-pointer animate-bounce"
+              className="flex items-center gap-2 px-8 py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono tracking-wider text-sm shadow-xl shadow-amber-500/30 transition-all cursor-pointer animate-pulse"
             >
               <span>{lang === 'id' ? 'SELESAIKAN KISAH' : 'COMPLETE THE ODYSSEY'}</span>
               <ArrowRight className="w-4 h-4" />

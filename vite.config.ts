@@ -5,12 +5,13 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/dont-blink.project/',
+    base: process.env.BASE_URL || './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname || process.cwd(), '.'),
       },
+      extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
@@ -19,6 +20,12 @@ export default defineConfig(() => {
 
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      sourcemap: false,
+      minify: true,
+      cssMinify: true,
+      assetsInlineLimit: 4096,
     },
   };
 });

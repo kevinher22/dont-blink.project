@@ -191,8 +191,8 @@ export const EndingsModal: React.FC<EndingsModalProps> = ({
                   </p>
 
                   {/* Excerpt / Hint */}
-                  <div className="p-3 rounded-lg bg-black/40 border border-slate-800/60 mb-4">
-                    <p className="text-xs font-mono leading-relaxed text-slate-300 line-clamp-3">
+                  <div className="p-3 rounded-lg bg-black/40 border border-slate-800/60 mb-4 min-h-[4.2rem] flex items-center">
+                    <p className="text-xs font-mono leading-relaxed text-slate-300">
                       {isUnlocked
                         ? `"${lang === 'id' ? (ending.description?.id || ending.shortDescription.id) : (ending.description?.en || ending.shortDescription.en)}"`
                         : `${lang === 'id' ? 'Petunjuk: ' : 'Hint: '} ${

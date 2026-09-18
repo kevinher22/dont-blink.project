@@ -126,6 +126,14 @@ export default function App() {
     }
   }, [todayKey]);
 
+  // Language subscription for immediate UI reactivity
+  const [, setLangVersion] = useState<number>(0);
+  useEffect(() => {
+    return i18n.subscribe(() => {
+      setLangVersion((v) => v + 1);
+    });
+  }, []);
+
   // Automatic Trigger for Final Story Cutscene when all 7 endings are unlocked
   useEffect(() => {
     if (gameState === 'MENU' && !isFinalCutsceneOpen && !selectedEndingForCutscene) {
@@ -250,22 +258,29 @@ export default function App() {
       durationSec: number,
       distance: number,
       newEndingId: string | null,
-      newFragments: string[]
+      newFragments: string[],
+      runSessionId?: string
     ) => {
       const prevBest = storage.getData().bestScore;
       const isNewRecord = storage.updateBestScore(score);
       const newBest = storage.getData().bestScore;
 
-      // Submit to Leaderboard Architecture
-      leaderboardService.submitScore({
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        score,
-        combo: maxCombo,
-        durationSeconds: durationSec,
-        coinsEarned,
-        timestamp: Date.now(),
-        skinUsed: selectedSkin,
-      });
+      // Submit to Leaderboard Architecture (online Supabase + offline cache)
+      leaderboardService.submitScore(
+        {
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          score,
+          combo: maxCombo,
+          durationSeconds: durationSec,
+          coinsEarned,
+          timestamp: Date.now(),
+          skinUsed: selectedSkin,
+        },
+        distance,
+        newEndingId,
+        undefined,
+        runSessionId
+      );
 
       analytics.logEvent('game_over', {
         score,
@@ -372,9 +387,16 @@ export default function App() {
     engine.setupCanvasDimensions();
     engine.renderMenuPreview();
 
-    // Check orientation and setup dimensions dynamically
+    // Check orientation and setup dimensions dynamically (with threshold guard)
+    let lastW = 0;
+    let lastH = 0;
     const updateDimensionsAndOrientation = () => {
-      const portrait = window.innerHeight > window.innerWidth;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (Math.abs(w - lastW) < 2 && Math.abs(h - lastH) < 2) return;
+      lastW = w;
+      lastH = h;
+      const portrait = h > w;
       setIsPortrait(portrait);
       engine.setupCanvasDimensions();
       if (gameStateRef.current === 'MENU') {
@@ -394,12 +416,22 @@ export default function App() {
     // Window orientation and viewport change listeners
     const onWindowChange = () => {
       updateDimensionsAndOrientation();
-      // Second tick handles mobile browser address bar transition
       requestAnimationFrame(updateDimensionsAndOrientation);
+    };
+
+    // Android/Browser Lifecycle: Pause when backgrounded, resume audio and sync on foreground
+    const onVisibilityChange = () => {
+      const isVisible = document.visibilityState === 'visible';
+      sound.handleVisibilityChange(isVisible);
+      engine.handleVisibilityChange(isVisible);
+      if (!isVisible && gameStateRef.current === 'PLAYING') {
+        setGameState('PAUSED');
+      }
     };
 
     window.addEventListener('resize', onWindowChange, { passive: true });
     window.addEventListener('orientationchange', onWindowChange, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
     if (window.screen?.orientation) {
       window.screen.orientation.addEventListener('change', onWindowChange);
     }
@@ -409,6 +441,7 @@ export default function App() {
       resizeObserver.disconnect();
       window.removeEventListener('resize', onWindowChange);
       window.removeEventListener('orientationchange', onWindowChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       if (window.screen?.orientation) {
         window.screen.orientation.removeEventListener('change', onWindowChange);
       }
@@ -693,6 +726,7 @@ export default function App() {
             onPlayAgain={handleStartGame}
             onOpenCustomize={() => setGameState('CUSTOMIZE')}
             onOpenAchievements={() => setGameState('ACHIEVEMENTS')}
+            onOpenLeaderboard={() => setGameState('LEADERBOARD')}
             onOpenStoryJournal={() => setIsStoryJournalOpen(true)}
             onOpenEndings={() => setIsEndingsModalOpen(true)}
             onWatchEndingCutscene={(ending) => setSelectedEndingForCutscene(ending)}
