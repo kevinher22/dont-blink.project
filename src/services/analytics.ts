@@ -14,6 +14,10 @@ export type AnalyticsEvent =
   | 'share_clicked'
   | 'revive_clicked'
   | 'ad_watched'
+  | 'ad_interstitial_requested'
+  | 'ad_interstitial_completed'
+  | 'ad_rewarded_requested'
+  | 'ad_rewarded_completed'
   | 'purchase_clicked';
 
 class AnalyticsService {

@@ -2,7 +2,7 @@ import { SkinId } from '../types';
 import { AVAILABLE_SKINS } from './constants';
 import { drawRoundRect } from '../utils/canvasHelper';
 
-export type CharacterAction = 'idle' | 'run' | 'jump' | 'hit' | 'celebrate';
+export type CharacterAction = 'idle' | 'run' | 'jump' | 'hit' | 'celebrate' | 'look_back';
 
 export function renderCharacter(
   ctx: CanvasRenderingContext2D,
@@ -20,7 +20,7 @@ export function renderCharacter(
   ctx.translate(x, y);
   ctx.scale(scale, scale);
 
-  // Apply hit or celebration transform
+  // Apply hit, look_back, or celebration transform
   let tilt = 0;
   let bounce = 0;
   let alpha = 1;
@@ -31,6 +31,9 @@ export function renderCharacter(
   } else if (action === 'jump') {
     tilt = -0.22;
     bounce = 0;
+  } else if (action === 'look_back') {
+    tilt = -0.05;
+    bounce = Math.sin(animTime * 6) * 1.5;
   } else if (action === 'hit') {
     tilt = (animTime * 12) % (Math.PI * 2);
     alpha = 0.7 + Math.sin(animTime * 20) * 0.3;
@@ -72,12 +75,10 @@ export function renderCharacter(
   // --- Torso / Chassis ---
   ctx.fillStyle = primary;
   if (skinId === 'pixel') {
-    // 8-bit stepped block
     ctx.fillRect(-12, -4, 24, 28);
     ctx.fillStyle = secondary;
     ctx.fillRect(-10, -2, 20, 10);
   } else {
-    // Sleek curved capsule
     ctx.beginPath();
     drawRoundRect(ctx, -12, -4, 24, 28, 8);
     ctx.fill();
@@ -108,7 +109,6 @@ export function renderCharacter(
     ctx.arc(0, -32, 3, 0, Math.PI * 2);
     ctx.fill();
   } else if (skinId === 'golden') {
-    // Crown
     ctx.fillStyle = accent;
     ctx.beginPath();
     ctx.moveTo(-8, -24);
@@ -123,10 +123,23 @@ export function renderCharacter(
   }
 
   // Visor (The "Eye")
-  ctx.fillStyle = accent;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 10;
-  if (skinId === 'pixel') {
+  const visorColor = action === 'look_back' ? '#ef4444' : accent;
+  ctx.fillStyle = visorColor;
+  ctx.shadowColor = visorColor;
+  ctx.shadowBlur = action === 'look_back' ? 14 : 10;
+
+  if (action === 'look_back') {
+    // Eye swivels to stare backwards into the darkness behind
+    ctx.beginPath();
+    drawRoundRect(ctx, -9, -18, 10, 6, 3);
+    ctx.fill();
+
+    // Pupil looking behind
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-6, -15, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (skinId === 'pixel') {
     ctx.fillRect(0, -18, 8, 5);
   } else if (skinId === 'ghost') {
     // Ethereal dual eyes
@@ -155,40 +168,42 @@ export function renderCharacter(
     // Back leg
     ctx.fillStyle = secondary;
     ctx.fillRect(-6 + leg2X, 24, 5, 12 + leg2Y);
-    // Foot
     ctx.fillStyle = accent;
     ctx.fillRect(-4 + leg2X, 34 + leg2Y, 7, 4);
 
     // Front leg
     ctx.fillStyle = primary;
     ctx.fillRect(2 + leg1X, 24, 5, 12 + leg1Y);
-    // Foot
     ctx.fillStyle = accent;
     ctx.fillRect(4 + leg1X, 34 + leg1Y, 7, 4);
   } else if (action === 'jump') {
-    // Tucked aerodynamic jump pose
     ctx.fillStyle = secondary;
     ctx.fillRect(-7, 22, 5, 8);
     ctx.fillRect(1, 20, 5, 7);
     ctx.fillStyle = accent;
     ctx.fillRect(-5, 29, 6, 3);
     ctx.fillRect(3, 26, 6, 3);
+  } else if (action === 'look_back') {
+    // Hesitant stride turned backward
+    ctx.fillStyle = secondary;
+    ctx.fillRect(-5, 24, 5, 13);
+    ctx.fillStyle = primary;
+    ctx.fillRect(1, 24, 5, 13);
+    ctx.fillStyle = accent;
+    ctx.fillRect(-6, 36, 6, 3);
+    ctx.fillRect(0, 36, 6, 3);
   } else if (action === 'hit') {
-    // Splayed limbs
     ctx.fillStyle = secondary;
     ctx.fillRect(-12, 20, 6, 12);
     ctx.fillRect(6, 20, 6, 12);
   } else if (action === 'celebrate') {
-    // Straight legs with celebration hands
     ctx.fillStyle = primary;
     ctx.fillRect(-6, 24, 5, 14);
     ctx.fillRect(2, 24, 5, 14);
     ctx.fillStyle = accent;
-    // Raised arms
     ctx.fillRect(-16, -14, 5, 14);
     ctx.fillRect(11, -14, 5, 14);
   } else {
-    // Idle stance
     ctx.fillStyle = secondary;
     ctx.fillRect(-6, 24, 5, 14);
     ctx.fillStyle = primary;

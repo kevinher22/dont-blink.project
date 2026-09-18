@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GameState, SkinId, UserSettings, DailyChallenge } from './types';
+import { GameState, SkinId, UserSettings, DailyChallenge, GameEnding } from './types';
 import { GameEngine } from './game/engine';
 import { storage } from './services/storage';
 import { sound } from './services/audio';
 import { analytics } from './services/analytics';
 import { leaderboardService } from './services/leaderboard';
 import { INITIAL_ACHIEVEMENTS } from './game/constants';
+import { GAME_ENDINGS } from './data/storyData';
+import { i18n } from './services/i18n';
 
 import { HUD } from './components/HUD';
 import { MainMenu } from './components/MainMenu';
@@ -17,10 +19,18 @@ import { AchievementsModal } from './components/AchievementsModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AchievementToast } from './components/AchievementToast';
+import { OpeningCutscene } from './components/OpeningCutscene';
+import { StoryJournalModal } from './components/StoryJournalModal';
+import { EndingsModal } from './components/EndingsModal';
+import { EndingCutsceneModal } from './components/EndingCutsceneModal';
+import { CreditsModal } from './components/CreditsModal';
+import { FinalStoryCutsceneModal } from './components/FinalStoryCutsceneModal';
 
 export default function App() {
   // State Machine
-  const [gameState, setGameState] = useState<GameState>('MENU');
+  const [gameState, setGameState] = useState<GameState>(() => {
+    return storage.hasSeenOpeningCutscene() ? 'MENU' : 'OPENING_CUTSCENE';
+  });
 
   // Game Engine Reference
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -28,23 +38,39 @@ export default function App() {
   const engineRef = useRef<GameEngine | null>(null);
 
   // Persistent User Data State
-  const [bestScore, setBestScore] = useState<number>(0);
-  const [totalCoins, setTotalCoins] = useState<number>(0);
-  const [selectedSkin, setSelectedSkin] = useState<SkinId>('default');
-  const [unlockedSkins, setUnlockedSkins] = useState<SkinId[]>(['default']);
-  const [settings, setSettings] = useState<UserSettings>({
-    soundEnabled: true,
-    musicEnabled: true,
-    reducedMotion: false,
-  });
-  const [achievementsMap, setAchievementsMap] = useState<Record<string, { unlocked: boolean; unlockedAt?: number }>>({});
+  const [bestScore, setBestScore] = useState<number>(() => storage.getData().bestScore);
+  const [totalCoins, setTotalCoins] = useState<number>(() => storage.getData().coins);
+  const [selectedSkin, setSelectedSkin] = useState<SkinId>(() => storage.getData().selectedSkin);
+  const [unlockedSkins, setUnlockedSkins] = useState<SkinId[]>(() => storage.getData().unlockedSkins);
+  const [settings, setSettings] = useState<UserSettings>(() => storage.getData().settings);
+  const [achievementsMap, setAchievementsMap] = useState<
+    Record<string, { unlocked: boolean; unlockedAt?: number }>
+  >({});
 
   // Active Run HUD State
   const [currentScore, setCurrentScore] = useState<number>(0);
   const [currentCombo, setCurrentCombo] = useState<number>(0);
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1);
+  const [currentDistance, setCurrentDistance] = useState<number>(0);
+  const [isLookBackAvailable, setIsLookBackAvailable] = useState<boolean>(false);
   const [coinsEarnedRun, setCoinsEarnedRun] = useState<number>(0);
   const [showTutorialHint, setShowTutorialHint] = useState<boolean>(false);
+
+  // Story & Endings Modal States
+  const [isStoryJournalOpen, setIsStoryJournalOpen] = useState<boolean>(false);
+  const [isEndingsModalOpen, setIsEndingsModalOpen] = useState<boolean>(false);
+  const [isCreditsModalOpen, setIsCreditsModalOpen] = useState<boolean>(false);
+  const [isFinalCutsceneOpen, setIsFinalCutsceneOpen] = useState<boolean>(false);
+  const [selectedEndingForCutscene, setSelectedEndingForCutscene] =
+    useState<GameEnding | null>(null);
+
+  const handleCloseEndingCutscene = useCallback(() => {
+    setSelectedEndingForCutscene(null);
+    const story = storage.getStoryState();
+    if (story.unlockedEndings.length >= 7 && !storage.hasSeenFinalStoryCutscene()) {
+      setIsFinalCutsceneOpen(true);
+    }
+  }, []);
 
   // Game Over Results
   const [finalRunResult, setFinalRunResult] = useState<{
@@ -52,12 +78,16 @@ export default function App() {
     bestScore: number;
     combo: number;
     coins: number;
+    distance: number;
     isNewRecord: boolean;
+    newEndingId?: string | null;
+    newFragments?: string[];
   }>({
     score: 0,
     bestScore: 0,
     combo: 0,
     coins: 0,
+    distance: 0,
     isNewRecord: false,
   });
 
@@ -67,8 +97,10 @@ export default function App() {
     storage.getDailyChallenge(todayKey)
   );
 
-  // Achievement Toast Notification
-  const [activeToast, setActiveToast] = useState<{ title: string; description: string } | null>(null);
+  // Toast Notification
+  const [activeToast, setActiveToast] = useState<{ title: string; description: string } | null>(
+    null
+  );
 
   // Load Initial Persistent Data
   useEffect(() => {
@@ -80,7 +112,21 @@ export default function App() {
     setSettings(data.settings);
     setAchievementsMap(data.achievements);
     setDailyChallenge(storage.getDailyChallenge(todayKey));
+
+    if (data.settings.language) {
+      i18n.setLanguage(data.settings.language);
+    }
   }, [todayKey]);
+
+  // Automatic Trigger for Final Story Cutscene when all 7 endings are unlocked
+  useEffect(() => {
+    if (gameState === 'MENU' && !isFinalCutsceneOpen && !selectedEndingForCutscene) {
+      const storyState = storage.getStoryState();
+      if (storyState.unlockedEndings.length >= 7 && !storage.hasSeenFinalStoryCutscene()) {
+        setIsFinalCutsceneOpen(true);
+      }
+    }
+  }, [gameState, isFinalCutsceneOpen, selectedEndingForCutscene]);
 
   // Check & Unlock Achievement helper
   const unlockAchievement = useCallback((id: string) => {
@@ -97,20 +143,23 @@ export default function App() {
   }, []);
 
   // Update Daily Challenge progress helper
-  const updateDailyProgress = useCallback((val: number) => {
-    const { completedNow } = storage.updateDailyProgress(todayKey, val);
-    const updated = storage.getDailyChallenge(todayKey);
-    setDailyChallenge(updated);
+  const updateDailyProgress = useCallback(
+    (val: number) => {
+      const { completedNow } = storage.updateDailyProgress(todayKey, val);
+      const updated = storage.getDailyChallenge(todayKey);
+      setDailyChallenge(updated);
 
-    if (completedNow) {
-      sound.playAchievement();
-      setActiveToast({
-        title: 'Daily Challenge Complete!',
-        description: `Mission finished: ${updated.title}`,
-      });
-      analytics.logEvent('daily_challenge_completed');
-    }
-  }, [todayKey]);
+      if (completedNow) {
+        sound.playAchievement();
+        setActiveToast({
+          title: 'Daily Challenge Complete!',
+          description: `Mission finished: ${updated.title}`,
+        });
+        analytics.logEvent('daily_challenge_completed');
+      }
+    },
+    [todayKey]
+  );
 
   // Keep gameState in ref for callbacks/resize
   const gameStateRef = useRef<GameState>(gameState);
@@ -120,10 +169,13 @@ export default function App() {
 
   // Keep game callbacks in ref to avoid engine teardown on state/prop changes
   const callbacksRef = useRef({
-    onScoreUpdate: (score: number, combo: number, multiplier: number) => {
+    onScoreUpdate: (score: number, combo: number, multiplier: number, distance?: number) => {
       setCurrentScore(score);
       setCurrentCombo(combo);
       setCurrentMultiplier(multiplier);
+      if (distance !== undefined) {
+        setCurrentDistance(distance);
+      }
     },
     onCoinCollected: (_coinsTotal: number, earned: number) => {
       setCoinsEarnedRun((prev) => prev + earned);
@@ -167,7 +219,31 @@ export default function App() {
         }
       }
     },
-    onGameOver: (score: number, maxCombo: number, coinsEarned: number, durationSec: number) => {
+    onLookBackAvailabilityChange: (available: boolean) => {
+      setIsLookBackAvailable(available);
+    },
+    onNewStoryDiscovery: (title: string, subtitle?: string) => {
+      sound.playFragmentFound();
+      setActiveToast({
+        title: title,
+        description: subtitle || 'Dokumen koridor ditambahkan ke Jurnal Kisah.',
+      });
+    },
+    onEndingTriggered: (endingId: string) => {
+      const ending = GAME_ENDINGS.find((e) => e.id === endingId);
+      if (ending) {
+        setSelectedEndingForCutscene(ending);
+      }
+    },
+    onGameOver: (
+      score: number,
+      maxCombo: number,
+      coinsEarned: number,
+      durationSec: number,
+      distance: number,
+      newEndingId: string | null,
+      newFragments: string[]
+    ) => {
       const prevBest = storage.getData().bestScore;
       const isNewRecord = storage.updateBestScore(score);
       const newBest = storage.getData().bestScore;
@@ -183,7 +259,26 @@ export default function App() {
         skinUsed: selectedSkin,
       });
 
-      analytics.logEvent('game_over', { score, combo: maxCombo, coins: coinsEarned });
+      analytics.logEvent('game_over', {
+        score,
+        combo: maxCombo,
+        coins: coinsEarned,
+        distance,
+      });
+
+      // Check distance achievements
+      if (distance >= 500) {
+        unlockAchievement('marathon_runner');
+      }
+
+      // Check total fragments achievement
+      const storyState = storage.getStoryState();
+      if (storyState.unlockedFragments.length >= 10) {
+        unlockAchievement('fragment_collector');
+      }
+      if (storyState.unlockedEndings.length >= 7) {
+        unlockAchievement('endings_master');
+      }
 
       setBestScore(newBest);
       setFinalRunResult({
@@ -191,8 +286,19 @@ export default function App() {
         bestScore: newBest,
         combo: maxCombo,
         coins: coinsEarned,
+        distance,
         isNewRecord: isNewRecord && prevBest > 0,
+        newEndingId,
+        newFragments,
       });
+
+      // If a new ending was unlocked, trigger cutscene right away!
+      if (newEndingId) {
+        const found = GAME_ENDINGS.find((e) => e.id === newEndingId);
+        if (found) {
+          setSelectedEndingForCutscene(found);
+        }
+      }
 
       setGameState('GAME_OVER');
     },
@@ -200,84 +306,36 @@ export default function App() {
 
   // Keep callbacks ref updated with current closure values
   useEffect(() => {
-    callbacksRef.current = {
-      onScoreUpdate: (score: number, combo: number, multiplier: number) => {
-        setCurrentScore(score);
-        setCurrentCombo(combo);
-        setCurrentMultiplier(multiplier);
-      },
-      onCoinCollected: (_coinsTotal: number, earned: number) => {
-        setCoinsEarnedRun((prev) => prev + earned);
-        storage.addCoins(earned);
-        setTotalCoins(storage.getData().coins);
-
-        const totalEarnedSoFar = storage.getData().stats.totalCoinsCollected;
-        if (totalEarnedSoFar >= 50) {
-          unlockAchievement('coin_collector');
+    callbacksRef.current.onAchievementProgress = (event: string, value: number) => {
+      if (event === 'game_started') {
+        unlockAchievement('first_run');
+      } else if (event === 'current_score') {
+        if (value >= 100) unlockAchievement('century');
+        if (value >= 1000) unlockAchievement('high_roller');
+        if (dailyChallenge.targetType === 'score') {
+          updateDailyProgress(value);
         }
-      },
-      onNewRecord: (_score: number) => {
-        unlockAchievement('record_breaker');
-      },
-      onAchievementProgress: (event: string, value: number) => {
-        if (event === 'game_started') {
-          unlockAchievement('first_run');
-        } else if (event === 'current_score') {
-          if (value >= 100) unlockAchievement('century');
-          if (value >= 1000) unlockAchievement('high_roller');
-          if (dailyChallenge.targetType === 'score') {
-            updateDailyProgress(value);
-          }
-        } else if (event === 'survival_time') {
-          if (value >= 30) unlockAchievement('speedrunner');
-          if (dailyChallenge.targetType === 'time') {
-            updateDailyProgress(Math.floor(value));
-          }
-        } else if (event === 'max_combo') {
-          if (value >= 6) unlockAchievement('combo_master');
-          if (dailyChallenge.targetType === 'combo') {
-            updateDailyProgress(value);
-          }
-        } else if (event === 'coins_collected') {
-          if (dailyChallenge.targetType === 'coins') {
-            updateDailyProgress(value);
-          }
-        } else if (event === 'obstacles_dodged') {
-          if (value >= 5) {
-            unlockAchievement('no_hit');
-          }
+      } else if (event === 'survival_time') {
+        if (value >= 30) unlockAchievement('speedrunner');
+        if (dailyChallenge.targetType === 'time') {
+          updateDailyProgress(Math.floor(value));
         }
-      },
-      onGameOver: (score: number, maxCombo: number, coinsEarned: number, durationSec: number) => {
-        const prevBest = storage.getData().bestScore;
-        const isNewRecord = storage.updateBestScore(score);
-        const newBest = storage.getData().bestScore;
-
-        leaderboardService.submitScore({
-          id: `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          score,
-          combo: maxCombo,
-          durationSeconds: durationSec,
-          coinsEarned,
-          timestamp: Date.now(),
-          skinUsed: selectedSkin,
-        });
-
-        analytics.logEvent('game_over', { score, combo: maxCombo, coins: coinsEarned });
-
-        setBestScore(newBest);
-        setFinalRunResult({
-          score,
-          bestScore: newBest,
-          combo: maxCombo,
-          coins: coinsEarned,
-          isNewRecord: isNewRecord && prevBest > 0,
-        });
-
-        setGameState('GAME_OVER');
-      },
+      } else if (event === 'max_combo') {
+        if (value >= 6) unlockAchievement('combo_master');
+        if (dailyChallenge.targetType === 'combo') {
+          updateDailyProgress(value);
+        }
+      } else if (event === 'coins_collected') {
+        if (dailyChallenge.targetType === 'coins') {
+          updateDailyProgress(value);
+        }
+      } else if (event === 'obstacles_dodged') {
+        if (value >= 5) {
+          unlockAchievement('no_hit');
+        }
+      }
     };
-  });
+  }, [dailyChallenge, unlockAchievement, updateDailyProgress]);
 
   // Initialize Game Engine ONCE on canvas mount
   useEffect(() => {
@@ -290,6 +348,12 @@ export default function App() {
       onNewRecord: (...args) => callbacksRef.current.onNewRecord(...args),
       onAchievementProgress: (...args) => callbacksRef.current.onAchievementProgress(...args),
       onGameOver: (...args) => callbacksRef.current.onGameOver(...args),
+      onLookBackAvailabilityChange: (...args) =>
+        callbacksRef.current.onLookBackAvailabilityChange?.(...args),
+      onNewStoryDiscovery: (...args) =>
+        callbacksRef.current.onNewStoryDiscovery?.(...args),
+      onEndingTriggered: (...args) =>
+        callbacksRef.current.onEndingTriggered?.(...args),
     });
 
     engine.setPersonalBest(storage.getData().bestScore);
@@ -351,7 +415,9 @@ export default function App() {
     setCurrentScore(0);
     setCurrentCombo(0);
     setCurrentMultiplier(1);
+    setCurrentDistance(0);
     setCoinsEarnedRun(0);
+    setIsLookBackAvailable(false);
     setGameState('PLAYING');
 
     // Show tutorial hint for 3.2 seconds
@@ -370,22 +436,33 @@ export default function App() {
     analytics.logEvent('game_started');
   }, [selectedSkin]);
 
-  // Action / Tap / Jump handler
-  const handlePlayerAction = useCallback((e?: React.SyntheticEvent | KeyboardEvent) => {
-    if (e && 'preventDefault' in e && typeof e.preventDefault === 'function') {
-      e.preventDefault();
+  // Look Back Mechanic Action
+  const handleTriggerLookBack = useCallback(() => {
+    if (gameState === 'PLAYING' && engineRef.current) {
+      engineRef.current.triggerLookBack();
+      unlockAchievement('first_glance');
     }
+  }, [gameState, unlockAchievement]);
 
-    if (gameState === 'PLAYING') {
-      if (engineRef.current) {
-        engineRef.current.handleAction();
+  // Action / Tap / Jump handler
+  const handlePlayerAction = useCallback(
+    (e?: React.SyntheticEvent | KeyboardEvent) => {
+      if (e && 'preventDefault' in e && typeof e.preventDefault === 'function') {
+        e.preventDefault();
       }
-    } else if (gameState === 'GAME_OVER') {
-      handleStartGame();
-    } else if (gameState === 'MENU') {
-      handleStartGame();
-    }
-  }, [gameState, handleStartGame]);
+
+      if (gameState === 'PLAYING') {
+        if (engineRef.current) {
+          engineRef.current.handleAction();
+        }
+      } else if (gameState === 'GAME_OVER') {
+        handleStartGame();
+      } else if (gameState === 'MENU') {
+        handleStartGame();
+      }
+    },
+    [gameState, handleStartGame]
+  );
 
   // Keyboard Event Listener
   useEffect(() => {
@@ -393,6 +470,10 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
         handlePlayerAction(e);
+      } else if (e.code === 'KeyB' || e.code === 'KeyQ') {
+        // Look Back hotkey
+        e.preventDefault();
+        handleTriggerLookBack();
       } else if (e.code === 'Escape') {
         e.preventDefault();
         if (gameState === 'PLAYING') {
@@ -403,7 +484,7 @@ export default function App() {
           sound.playClick();
           engineRef.current?.resume();
           setGameState('PLAYING');
-        } else if (gameState !== 'MENU') {
+        } else if (gameState !== 'MENU' && gameState !== 'OPENING_CUTSCENE') {
           sound.playClick();
           setGameState('MENU');
         }
@@ -416,7 +497,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState, handlePlayerAction, handleStartGame]);
+  }, [gameState, handlePlayerAction, handleStartGame, handleTriggerLookBack]);
 
   // Pause Controls
   const handlePauseToggle = useCallback(() => {
@@ -448,29 +529,35 @@ export default function App() {
     setSelectedSkin(id);
   }, []);
 
-  const handleBuySkin = useCallback((id: SkinId, cost: number) => {
-    const success = storage.unlockSkin(id, cost);
-    if (success) {
-      setSelectedSkin(id);
-      setUnlockedSkins([...storage.getData().unlockedSkins]);
-      setTotalCoins(storage.getData().coins);
-      unlockAchievement('fashionista');
-      analytics.logEvent('skin_unlocked', { skin_id: id });
-    }
-  }, [unlockAchievement]);
+  const handleBuySkin = useCallback(
+    (id: SkinId, cost: number) => {
+      const success = storage.unlockSkin(id, cost);
+      if (success) {
+        setSelectedSkin(id);
+        setUnlockedSkins([...storage.getData().unlockedSkins]);
+        setTotalCoins(storage.getData().coins);
+        unlockAchievement('fashionista');
+        analytics.logEvent('skin_unlocked', { skin_id: id });
+      }
+    },
+    [unlockAchievement]
+  );
 
   // Claim Daily Challenge reward
-  const handleClaimDailyReward = useCallback((reward: number) => {
-    const claimed = storage.claimDailyReward(todayKey, reward);
-    if (claimed) {
-      setDailyChallenge(storage.getDailyChallenge(todayKey));
-      setTotalCoins(storage.getData().coins);
-      setActiveToast({
-        title: `+${reward} Orbs Claimed!`,
-        description: 'Spend them in the Skin Locker!',
-      });
-    }
-  }, [todayKey]);
+  const handleClaimDailyReward = useCallback(
+    (reward: number) => {
+      const claimed = storage.claimDailyReward(todayKey, reward);
+      if (claimed) {
+        setDailyChallenge(storage.getDailyChallenge(todayKey));
+        setTotalCoins(storage.getData().coins);
+        setActiveToast({
+          title: `+${reward} Orbs Claimed!`,
+          description: 'Spend them in the Skin Locker!',
+        });
+      }
+    },
+    [todayKey]
+  );
 
   // Reset progress
   const handleResetData = useCallback(() => {
@@ -524,6 +611,9 @@ export default function App() {
             multiplier={currentMultiplier}
             bestScore={bestScore}
             coinsEarned={coinsEarnedRun}
+            distance={currentDistance}
+            isLookBackAvailable={isLookBackAvailable}
+            onLookBack={handleTriggerLookBack}
             isPaused={false}
             soundEnabled={settings.soundEnabled}
             musicEnabled={settings.musicEnabled}
@@ -544,7 +634,10 @@ export default function App() {
             onOpenDaily={() => setGameState('DAILY_CHALLENGE')}
             onOpenAchievements={() => setGameState('ACHIEVEMENTS')}
             onOpenSettings={() => setGameState('SETTINGS')}
+            onOpenCredits={() => setIsCreditsModalOpen(true)}
             onOpenLeaderboard={() => setGameState('LEADERBOARD')}
+            onOpenStoryJournal={() => setIsStoryJournalOpen(true)}
+            onOpenEndings={() => setIsEndingsModalOpen(true)}
             hasDailyRewardReady={dailyChallenge.completed && !dailyChallenge.claimed}
           />
         )}
@@ -556,10 +649,16 @@ export default function App() {
             bestScore={finalRunResult.bestScore}
             combo={finalRunResult.combo}
             coinsEarned={finalRunResult.coins}
+            distance={finalRunResult.distance}
             isNewRecord={finalRunResult.isNewRecord}
+            newEndingId={finalRunResult.newEndingId}
+            newFragments={finalRunResult.newFragments}
             onPlayAgain={handleStartGame}
             onOpenCustomize={() => setGameState('CUSTOMIZE')}
             onOpenAchievements={() => setGameState('ACHIEVEMENTS')}
+            onOpenStoryJournal={() => setIsStoryJournalOpen(true)}
+            onOpenEndings={() => setIsEndingsModalOpen(true)}
+            onWatchEndingCutscene={(ending) => setSelectedEndingForCutscene(ending)}
             onBackToMenu={() => setGameState('MENU')}
           />
         )}
@@ -624,6 +723,53 @@ export default function App() {
             }}
             onResetData={handleResetData}
             onClose={() => setGameState('MENU')}
+            onPlayCutscene={() => {
+              setGameState('OPENING_CUTSCENE');
+            }}
+          />
+        )}
+
+        {/* Story Journal Modal */}
+        <StoryJournalModal
+          isOpen={isStoryJournalOpen}
+          onClose={() => setIsStoryJournalOpen(false)}
+        />
+
+        {/* Endings Archive Modal */}
+        <EndingsModal
+          isOpen={isEndingsModalOpen}
+          onClose={() => setIsEndingsModalOpen(false)}
+          onViewEndingCutscene={(ending) => {
+            setSelectedEndingForCutscene(ending);
+          }}
+          onPlayFinalStoryCutscene={() => setIsFinalCutsceneOpen(true)}
+        />
+
+        {/* Cinematic Ending Cutscene Modal */}
+        <EndingCutsceneModal
+          ending={selectedEndingForCutscene}
+          onClose={handleCloseEndingCutscene}
+        />
+
+        {/* Final Story Cutscene Modal (After all 7 endings) */}
+        <FinalStoryCutsceneModal
+          isOpen={isFinalCutsceneOpen}
+          onClose={() => setIsFinalCutsceneOpen(false)}
+        />
+
+        {/* Credits Modal */}
+        <CreditsModal
+          isOpen={isCreditsModalOpen}
+          onClose={() => setIsCreditsModalOpen(false)}
+        />
+
+        {/* Opening Prologue Cinematic Cutscene */}
+        {gameState === 'OPENING_CUTSCENE' && (
+          <OpeningCutscene
+            onComplete={() => {
+              storage.markOpeningCutsceneSeen();
+              setGameState('MENU');
+            }}
           />
         )}
 

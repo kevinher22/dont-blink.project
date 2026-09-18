@@ -1,13 +1,36 @@
-import { GameSaveData, SkinId, UserSettings, LeaderboardEntry, DailyChallenge } from '../types';
+import { GameSaveData, SkinId, UserSettings, LeaderboardEntry, DailyChallenge, StoryState, EndingId } from '../types';
 import { GAME_CONSTANTS } from '../game/constants';
 
 const STORAGE_KEY = 'dont_blink_save_v1';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 const DEFAULT_SETTINGS: UserSettings = {
   soundEnabled: true,
   musicEnabled: true,
+  masterVolume: 80,
+  sfxVolume: 80,
+  musicVolume: 70,
   reducedMotion: false,
+  screenShake: true,
+  particles: true,
+  vibration: true,
+  language: 'id',
+};
+
+const DEFAULT_STORY_STATE: StoryState = {
+  courage: 15,
+  fear: 10,
+  memory: 5,
+  trust: 10,
+  corruption: 0,
+  awareness: 10,
+  lookBackCount: 0,
+  secretEventsDiscovered: [],
+  unlockedFragments: ['frag_01'], // First whisper unlocked from beginning
+  unlockedChapters: ['chapter_1'], // Chapter 1 unlocked by default
+  unlockedEndings: [],
+  hasSeenIntro: false,
+  finalStoryCutsceneSeen: false,
 };
 
 const DEFAULT_SAVE_DATA: GameSaveData = {
@@ -31,10 +54,15 @@ const DEFAULT_SAVE_DATA: GameSaveData = {
     totalPlayTimeSeconds: 0,
     highestCombo: 1,
     obstaclesDodged: 0,
+    totalDistance: 0,
+    successfulRuns: 0,
+    failedRuns: 0,
+    lookBackCount: 0,
   },
   history: [],
   tutorialCompleted: false,
   adsRemoved: false,
+  story: DEFAULT_STORY_STATE,
 };
 
 class DataManager {
@@ -67,12 +95,42 @@ class DataManager {
       if (!raw) return { ...DEFAULT_SAVE_DATA };
 
       const parsed = JSON.parse(raw);
-      // Migration / schema check
+
+      // Safe migration logic: preserving all old high scores, coins, unlocked skins, etc.
+      const settings: UserSettings = {
+        ...DEFAULT_SETTINGS,
+        ...(parsed.settings || {}),
+      };
+
+      const stats = {
+        ...DEFAULT_SAVE_DATA.stats,
+        ...(parsed.stats || {}),
+      };
+
+      const story: StoryState = {
+        ...DEFAULT_STORY_STATE,
+        ...(parsed.story || {}),
+        unlockedFragments: Array.isArray(parsed.story?.unlockedFragments) && parsed.story.unlockedFragments.length > 0
+          ? parsed.story.unlockedFragments
+          : DEFAULT_STORY_STATE.unlockedFragments,
+        unlockedChapters: Array.isArray(parsed.story?.unlockedChapters) && parsed.story.unlockedChapters.length > 0
+          ? parsed.story.unlockedChapters
+          : DEFAULT_STORY_STATE.unlockedChapters,
+        unlockedEndings: Array.isArray(parsed.story?.unlockedEndings)
+          ? parsed.story.unlockedEndings
+          : [],
+        secretEventsDiscovered: Array.isArray(parsed.story?.secretEventsDiscovered)
+          ? parsed.story.secretEventsDiscovered
+          : [],
+      };
+
       return {
         ...DEFAULT_SAVE_DATA,
         ...parsed,
-        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
-        stats: { ...DEFAULT_SAVE_DATA.stats, ...(parsed.stats || {}) },
+        version: CURRENT_VERSION,
+        settings,
+        stats,
+        story,
         unlockedSkins: Array.isArray(parsed.unlockedSkins) && parsed.unlockedSkins.length > 0
           ? parsed.unlockedSkins
           : ['default'],
@@ -142,10 +200,16 @@ class DataManager {
     return this.inMemoryCache.settings;
   }
 
-  public recordRun(entry: LeaderboardEntry): void {
+  public recordRun(entry: LeaderboardEntry, distance: number = 0, lookBackOccurred: boolean = false): void {
     this.inMemoryCache.stats.totalRuns += 1;
     this.inMemoryCache.stats.totalScore += entry.score;
     this.inMemoryCache.stats.totalPlayTimeSeconds += Math.round(entry.durationSeconds);
+    this.inMemoryCache.stats.totalDistance += Math.round(distance);
+    if (lookBackOccurred) {
+      this.inMemoryCache.stats.lookBackCount += 1;
+      this.inMemoryCache.story.lookBackCount += 1;
+    }
+
     if (entry.combo > this.inMemoryCache.stats.highestCombo) {
       this.inMemoryCache.stats.highestCombo = entry.combo;
     }
@@ -164,6 +228,11 @@ class DataManager {
     this.save();
   }
 
+  public markIntroSeen(): void {
+    this.inMemoryCache.story.hasSeenIntro = true;
+    this.save();
+  }
+
   public unlockAchievement(id: string): boolean {
     if (!this.inMemoryCache.achievements[id]?.unlocked) {
       this.inMemoryCache.achievements[id] = {
@@ -175,6 +244,98 @@ class DataManager {
     }
     return false;
   }
+
+  // --- STORY STATE METHODS ---
+
+  public getStoryState(): StoryState {
+    return this.inMemoryCache.story;
+  }
+
+  public updateStoryFactors(partial: Partial<StoryState>): StoryState {
+    this.inMemoryCache.story = {
+      ...this.inMemoryCache.story,
+      ...partial,
+      courage: Math.min(100, Math.max(0, partial.courage ?? this.inMemoryCache.story.courage)),
+      fear: Math.min(100, Math.max(0, partial.fear ?? this.inMemoryCache.story.fear)),
+      memory: Math.min(100, Math.max(0, partial.memory ?? this.inMemoryCache.story.memory)),
+      trust: Math.min(100, Math.max(0, partial.trust ?? this.inMemoryCache.story.trust)),
+      corruption: Math.min(100, Math.max(0, partial.corruption ?? this.inMemoryCache.story.corruption)),
+      awareness: Math.min(100, Math.max(0, partial.awareness ?? this.inMemoryCache.story.awareness)),
+    };
+    this.save();
+    return this.inMemoryCache.story;
+  }
+
+  public unlockFragment(fragmentId: string): boolean {
+    if (!this.inMemoryCache.story.unlockedFragments.includes(fragmentId)) {
+      this.inMemoryCache.story.unlockedFragments.push(fragmentId);
+      this.inMemoryCache.story.memory = Math.min(100, this.inMemoryCache.story.memory + 5);
+      this.inMemoryCache.story.awareness = Math.min(100, this.inMemoryCache.story.awareness + 4);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public unlockChapter(chapterId: string): boolean {
+    if (!this.inMemoryCache.story.unlockedChapters.includes(chapterId)) {
+      this.inMemoryCache.story.unlockedChapters.push(chapterId);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public unlockEnding(endingId: EndingId): boolean {
+    if (!this.inMemoryCache.story.unlockedEndings.includes(endingId)) {
+      this.inMemoryCache.story.unlockedEndings.push(endingId);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public registerSecretEvent(eventId: string): boolean {
+    if (!this.inMemoryCache.story.secretEventsDiscovered.includes(eventId)) {
+      this.inMemoryCache.story.secretEventsDiscovered.push(eventId);
+      this.inMemoryCache.story.awareness = Math.min(100, this.inMemoryCache.story.awareness + 10);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public hasSeenOpeningCutscene(): boolean {
+    return !!this.inMemoryCache.story.hasSeenIntro || !!this.inMemoryCache.story.hasSeenOpeningCutscene;
+  }
+
+  public markOpeningCutsceneSeen(): void {
+    this.inMemoryCache.story.hasSeenIntro = true;
+    this.inMemoryCache.story.hasSeenOpeningCutscene = true;
+    this.save();
+  }
+
+  public setHasSeenOpeningCutscene(seen: boolean): void {
+    this.inMemoryCache.story.hasSeenIntro = seen;
+    this.inMemoryCache.story.hasSeenOpeningCutscene = seen;
+    this.save();
+  }
+
+  public hasSeenFinalStoryCutscene(): boolean {
+    return !!this.inMemoryCache.story.finalStoryCutsceneSeen;
+  }
+
+  public markFinalStoryCutsceneSeen(): void {
+    this.inMemoryCache.story.finalStoryCutsceneSeen = true;
+    this.save();
+  }
+
+  public setHasSeenFinalStoryCutscene(seen: boolean): void {
+    this.inMemoryCache.story.finalStoryCutsceneSeen = seen;
+    this.save();
+  }
+
+  // --- DAILY CHALLENGE ---
 
   public getDailyChallenge(todayDateKey: string): DailyChallenge {
     const list = [
@@ -215,7 +376,6 @@ class DataManager {
       },
     ];
 
-    // Pick deterministic index based on date string hash
     let hash = 0;
     for (let i = 0; i < todayDateKey.length; i++) {
       hash = (hash << 5) - hash + todayDateKey.charCodeAt(i);
@@ -276,7 +436,11 @@ class DataManager {
   }
 
   public resetAll(): void {
-    this.inMemoryCache = { ...DEFAULT_SAVE_DATA };
+    this.inMemoryCache = {
+      ...DEFAULT_SAVE_DATA,
+      story: { ...DEFAULT_STORY_STATE },
+      settings: { ...DEFAULT_SETTINGS },
+    };
     this.save();
   }
 }

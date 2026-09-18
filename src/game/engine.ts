@@ -11,14 +11,55 @@ import {
 import { GAME_CONSTANTS } from './constants';
 import { renderCharacter, CharacterAction } from './characterRenderer';
 import { sound } from '../services/audio';
+import { story } from '../services/storyManager';
+import { storage } from '../services/storage';
 import { drawRoundRect } from '../utils/canvasHelper';
+import { renderConsistentEntity } from './entityVisuals';
+
+export type EntityEncounterType =
+  | 'A_DISTANT_SILHOUETTE'
+  | 'B_MOTIONLESS_DISTANCE'
+  | 'C_CROSSING_PATH'
+  | 'D_BRIEF_STALKER'
+  | 'E_PHANTOM_FOOTSTEPS'
+  | 'F_LOOK_BACK_REVEAL'
+  | 'G_FRAGMENT_APPARITION'
+  | 'H_ENVIRONMENTAL_ANOMALY';
+
+export interface ActiveEntityEncounter {
+  type: EntityEncounterType;
+  timer: number;
+  duration: number;
+  x: number;
+  y: number;
+  targetX: number;
+  alpha: number;
+  maxAlpha: number;
+  stance: 'STALKING' | 'CHASING' | 'STANDING' | 'CROSSING' | 'DISSOLVING' | 'GLIDING';
+  scale: number;
+  facingRight: boolean;
+  eyeGlowIntensity: number;
+  showRedAura: boolean;
+  revealedOnLookBack?: boolean;
+}
 
 export interface GameCallbacks {
-  onScoreUpdate: (score: number, combo: number, multiplier: number) => void;
+  onScoreUpdate: (score: number, combo: number, multiplier: number, distance?: number) => void;
   onCoinCollected: (coinsTotal: number, earned: number) => void;
-  onGameOver: (finalScore: number, maxCombo: number, coinsEarned: number, durationSec: number) => void;
+  onGameOver: (
+    finalScore: number,
+    maxCombo: number,
+    coinsEarned: number,
+    durationSec: number,
+    distance: number,
+    newEndingId: string | null,
+    newFragments: string[]
+  ) => void;
   onNewRecord: (score: number) => void;
   onAchievementProgress: (event: string, value: number) => void;
+  onLookBackAvailabilityChange?: (available: boolean) => void;
+  onNewStoryDiscovery?: (title: string, subtitle?: string) => void;
+  onEndingTriggered?: (endingId: string) => void;
 }
 
 export class GameEngine {
@@ -56,6 +97,17 @@ export class GameEngine {
   private characterAction: CharacterAction = 'idle';
   private hitTime: number = 0;
 
+  // Look Back & Mystery System
+  private isLookBackAvailable: boolean = false;
+  private isLookingBack: boolean = false;
+  private lookBackTimer: number = 0;
+  private lookBackGlitchAlpha: number = 0;
+  private whisperTimer: number = 0;
+  private shadowEntityDistance: number = -500; // Entity has disappeared after opening chase
+  private currentDangerPhase: 'DAY' | 'SUNSET' | 'NIGHT' | 'NEON' = 'DAY';
+  private activeEncounter: ActiveEntityEncounter | null = null;
+  private encounteredMilestones: Set<string> = new Set();
+
   // Entities
   private obstacles: Obstacle[] = [];
   private collectibles: Collectible[] = [];
@@ -69,7 +121,7 @@ export class GameEngine {
   private shakeIntensity: number = 0;
   private animClock: number = 0;
 
-  // Reduced motion
+  // Settings Cache
   private reducedMotion: boolean = false;
 
   constructor(canvas: HTMLCanvasElement, callbacks: GameCallbacks) {
@@ -98,8 +150,14 @@ export class GameEngine {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const displayWidth = rect.width > 0 ? rect.width : (this.canvas.parentElement?.clientWidth || GAME_CONSTANTS.BASE_WIDTH);
-    const displayHeight = rect.height > 0 ? rect.height : (this.canvas.parentElement?.clientHeight || GAME_CONSTANTS.BASE_HEIGHT);
+    const displayWidth =
+      rect.width > 0
+        ? rect.width
+        : this.canvas.parentElement?.clientWidth || GAME_CONSTANTS.BASE_WIDTH;
+    const displayHeight =
+      rect.height > 0
+        ? rect.height
+        : this.canvas.parentElement?.clientHeight || GAME_CONSTANTS.BASE_HEIGHT;
 
     const targetW = Math.max(320, Math.floor(displayWidth * dpr));
     const targetH = Math.max(180, Math.floor(displayHeight * dpr));
@@ -124,13 +182,220 @@ export class GameEngine {
   // --- Controls & Inputs ---
 
   public handleAction(): void {
-    if (this.state !== 'PLAYING') return;
+    if (this.state !== 'PLAYING' || this.isLookingBack) return;
 
-    // Buffer jump if airborne
     this.jumpBufferTimer = 0.12;
 
     if (this.isGrounded || this.coyoteTimer > 0) {
       this.executeJump();
+    }
+  }
+
+  public triggerLookBack(): void {
+    if (this.state !== 'PLAYING' || this.isLookingBack) return;
+
+    this.isLookingBack = true;
+    this.lookBackTimer = 1.0; // 1-second cinematic glance
+    this.lookBackGlitchAlpha = 0.85;
+    this.characterAction = 'look_back';
+
+    sound.playLookBack();
+    sound.playHeartbeat();
+
+    if (navigator.vibrate && storage.getData().settings.vibration) {
+      navigator.vibrate([40, 60, 120]);
+    }
+
+    // If an encounter is active, adapt or reveal it
+    if (!this.activeEncounter) {
+      this.triggerEncounter('F_LOOK_BACK_REVEAL');
+    } else if (this.activeEncounter.type === 'E_PHANTOM_FOOTSTEPS') {
+      this.activeEncounter.maxAlpha = 1.0;
+      this.activeEncounter.alpha = 1.0;
+      this.activeEncounter.revealedOnLookBack = true;
+      this.activeEncounter.showRedAura = true;
+    } else {
+      this.activeEncounter.eyeGlowIntensity = 1.6;
+    }
+
+    // Call story engine quietly (no floating numbers or text)
+    const { triggeredEnding } = story.onLookBackTriggered();
+
+    if (triggeredEnding && this.callbacks.onEndingTriggered) {
+      this.callbacks.onEndingTriggered(triggeredEnding);
+    }
+  }
+
+  public triggerEncounter(type: EntityEncounterType): void {
+    if (this.state !== 'PLAYING') return;
+
+    // Do not overwrite an existing active encounter unless it's LOOK_BACK_REVEAL
+    if (this.activeEncounter && type !== 'F_LOOK_BACK_REVEAL') {
+      return;
+    }
+
+    const groundY = GAME_CONSTANTS.GROUND_Y;
+
+    switch (type) {
+      case 'A_DISTANT_SILHOUETTE':
+        sound.playBreathing();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 3.8,
+          x: GAME_CONSTANTS.PLAYER_X - 180,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X - 140,
+          alpha: 0,
+          maxAlpha: 0.5,
+          stance: 'GLIDING',
+          scale: 0.95,
+          facingRight: true,
+          eyeGlowIntensity: 0.8,
+          showRedAura: true,
+        };
+        break;
+
+      case 'B_MOTIONLESS_DISTANCE':
+        sound.playGlitch();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 2.8,
+          x: GAME_CONSTANTS.BASE_WIDTH - 60,
+          y: groundY,
+          targetX: -120,
+          alpha: 0,
+          maxAlpha: 0.75,
+          stance: 'STANDING',
+          scale: 1.05,
+          facingRight: false,
+          eyeGlowIntensity: 1.0,
+          showRedAura: true,
+        };
+        break;
+
+      case 'C_CROSSING_PATH':
+        sound.playWhisper();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 1.8,
+          x: -50,
+          y: groundY,
+          targetX: GAME_CONSTANTS.BASE_WIDTH + 80,
+          alpha: 0,
+          maxAlpha: 0.85,
+          stance: 'CROSSING',
+          scale: 1.0,
+          facingRight: true,
+          eyeGlowIntensity: 1.1,
+          showRedAura: true,
+        };
+        break;
+
+      case 'D_BRIEF_STALKER':
+        sound.playHeartbeat();
+        sound.playBreathing();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 4.2,
+          x: -60,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X - 60,
+          alpha: 0,
+          maxAlpha: 0.95,
+          stance: 'STALKING',
+          scale: 1.1,
+          facingRight: true,
+          eyeGlowIntensity: 1.2,
+          showRedAura: true,
+        };
+        break;
+
+      case 'E_PHANTOM_FOOTSTEPS':
+        sound.playWhisper();
+        sound.playBreathing();
+        this.triggerScreenShake(3);
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 3.5,
+          x: GAME_CONSTANTS.PLAYER_X - 65,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X - 55,
+          alpha: 0,
+          maxAlpha: 0, // invisible unless revealed on look back!
+          stance: 'STALKING',
+          scale: 1.05,
+          facingRight: true,
+          eyeGlowIntensity: 1.0,
+          showRedAura: false,
+          revealedOnLookBack: false,
+        };
+        break;
+
+      case 'F_LOOK_BACK_REVEAL':
+        sound.playGlitch();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 1.2,
+          x: GAME_CONSTANTS.PLAYER_X - 65,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X - 55,
+          alpha: 0,
+          maxAlpha: 1.0,
+          stance: 'STALKING',
+          scale: 1.2,
+          facingRight: true,
+          eyeGlowIntensity: 1.6,
+          showRedAura: true,
+          revealedOnLookBack: true,
+        };
+        break;
+
+      case 'G_FRAGMENT_APPARITION':
+        sound.playWhisper();
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 2.6,
+          x: GAME_CONSTANTS.PLAYER_X + 45,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X + 75,
+          alpha: 0,
+          maxAlpha: 0.7,
+          stance: 'GLIDING',
+          scale: 0.9,
+          facingRight: false,
+          eyeGlowIntensity: 0.9,
+          showRedAura: true,
+        };
+        break;
+
+      case 'H_ENVIRONMENTAL_ANOMALY':
+        sound.playHeartbeat();
+        sound.playGlitch();
+        this.triggerScreenShake(4.5);
+        this.lookBackGlitchAlpha = 0.5;
+        this.activeEncounter = {
+          type,
+          timer: 0,
+          duration: 3.5,
+          x: GAME_CONSTANTS.PLAYER_X - 110,
+          y: groundY,
+          targetX: GAME_CONSTANTS.PLAYER_X - 90,
+          alpha: 0,
+          maxAlpha: 0.85,
+          stance: 'STANDING',
+          scale: 1.1,
+          facingRight: true,
+          eyeGlowIntensity: 1.4,
+          showRedAura: true,
+        };
+        break;
     }
   }
 
@@ -143,8 +408,8 @@ export class GameEngine {
 
     sound.playJump();
 
-    // Spawn jump dust particles
-    if (!this.reducedMotion) {
+    const particlesEnabled = storage.getData().settings.particles && !this.reducedMotion;
+    if (particlesEnabled) {
       for (let i = 0; i < 7; i++) {
         this.particles.push({
           x: GAME_CONSTANTS.PLAYER_X - 10 + Math.random() * 20,
@@ -165,7 +430,7 @@ export class GameEngine {
   // --- Game Lifecycle ---
 
   public start(): void {
-    this.stop(); // Ensure no dual loop
+    this.stop();
 
     this.state = 'PLAYING';
     this.isPaused = false;
@@ -180,6 +445,7 @@ export class GameEngine {
     this.distanceTraveled = 0;
     this.obstaclesDodgedCount = 0;
     this.isRecordBeaten = false;
+    this.currentDangerPhase = 'DAY';
 
     this.playerY = GAME_CONSTANTS.GROUND_Y;
     this.playerVy = 0;
@@ -189,13 +455,25 @@ export class GameEngine {
     this.characterAction = 'run';
     this.hitTime = 0;
 
+    this.isLookingBack = false;
+    this.lookBackTimer = 0;
+    this.lookBackGlitchAlpha = 0;
+    this.whisperTimer = 14;
+    this.isLookBackAvailable = false;
+    this.shadowEntityDistance = -500;
+    this.activeEncounter = null;
+    this.encounteredMilestones.clear();
+
     this.obstacles = [];
     this.collectibles = [];
     this.particles = [];
     this.floatingTexts = [];
-    this.nextObstacleSpawnDist = 380; // Safe breathing room at start
+    this.nextObstacleSpawnDist = 380;
     this.nextCollectibleSpawnDist = 200;
     this.shakeIntensity = 0;
+
+    story.resetRunState();
+    sound.setMusicMood('NORMAL');
 
     this.lastTime = performance.now();
     this.animFrameId = requestAnimationFrame(this.loop);
@@ -231,7 +509,6 @@ export class GameEngine {
     this.ctx.save();
     this.drawBackground(0);
     this.drawGround();
-    // Render idle or running character
     renderCharacter(
       this.ctx,
       GAME_CONSTANTS.PLAYER_X,
@@ -248,7 +525,7 @@ export class GameEngine {
   private loop = (timestamp: number): void => {
     if (!this.isRunning) return;
 
-    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05); // cap delta time to 50ms
+    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.05);
     this.lastTime = timestamp;
 
     if (!this.isPaused) {
@@ -266,44 +543,140 @@ export class GameEngine {
 
   private update(dt: number): void {
     this.animClock += dt;
-    this.runDuration += dt;
 
     if (this.state === 'PLAYING') {
-      // 1. Difficulty & Speed Scaling (Smooth, no sudden spikes)
+      // Handle Look Back state
+      let effectiveDt = dt;
+      if (this.isLookingBack) {
+        effectiveDt = dt * 0.15; // Extreme slow motion during Look Back
+        this.lookBackTimer -= dt;
+        if (this.lookBackTimer <= 0) {
+          this.isLookingBack = false;
+          this.characterAction = 'run';
+        }
+      }
+
+      this.runDuration += effectiveDt;
+
+      // 1. Difficulty & Speed Scaling
       this.currentSpeed = Math.min(
         GAME_CONSTANTS.MAX_SPEED,
         GAME_CONSTANTS.INITIAL_SPEED + this.runDuration * GAME_CONSTANTS.SPEED_ACCELERATION
       );
 
-      const frameDist = this.currentSpeed * 60 * dt;
+      const frameDist = this.currentSpeed * 60 * effectiveDt;
       this.distanceTraveled += frameDist;
 
-      // 2. Score progression by survival
-      const prevScore = this.score;
-      this.score += GAME_CONSTANTS.SURVIVAL_SCORE_PER_SEC * this.getMultiplier() * dt;
+      // Distance milestones & fragment checks
+      story.onDistanceProgress(this.distanceTraveled);
 
-      // Check new record
+      // Distance milestones triggering unique story encounters
+      if (this.distanceTraveled >= 450 && !this.encounteredMilestones.has('dist_450')) {
+        this.encounteredMilestones.add('dist_450');
+        this.triggerEncounter('A_DISTANT_SILHOUETTE');
+      } else if (this.distanceTraveled >= 1100 && !this.encounteredMilestones.has('dist_1100')) {
+        this.encounteredMilestones.add('dist_1100');
+        this.triggerEncounter('B_MOTIONLESS_DISTANCE');
+      } else if (this.distanceTraveled >= 2300 && !this.encounteredMilestones.has('dist_2300')) {
+        this.encounteredMilestones.add('dist_2300');
+        this.triggerEncounter('E_PHANTOM_FOOTSTEPS');
+      }
+
+      // Check danger phases with Special Encounters
+      if (this.runDuration > GAME_CONSTANTS.THEME_THRESHOLDS.NEON && this.currentDangerPhase !== 'NEON') {
+        this.currentDangerPhase = 'NEON';
+        sound.setMusicMood('INTENSE');
+        story.onDangerPhaseEntered('NEON');
+        this.addFloatingText('CYBER HORIZON REACHED ⚡', GAME_CONSTANTS.BASE_WIDTH / 2, 80, '#facc15', 18);
+        this.triggerEncounter('C_CROSSING_PATH');
+      } else if (
+        this.runDuration > GAME_CONSTANTS.THEME_THRESHOLDS.NIGHT &&
+        this.currentDangerPhase !== 'NIGHT' &&
+        this.currentDangerPhase !== 'NEON'
+      ) {
+        this.currentDangerPhase = 'NIGHT';
+        sound.setMusicMood('DANGER');
+        story.onDangerPhaseEntered('NIGHT');
+        this.addFloatingText('NIGHTMARE DEPTHS 🌙', GAME_CONSTANTS.BASE_WIDTH / 2, 80, '#c084fc', 18);
+        this.triggerEncounter('H_ENVIRONMENTAL_ANOMALY');
+      }
+
+      // Check periodic whispers & look back availability
+      this.whisperTimer -= effectiveDt;
+      if (this.whisperTimer <= 0) {
+        this.whisperTimer = 18 + Math.random() * 12;
+        sound.playWhisper();
+
+        // Reveal look back availability prompt
+        const nextAvail = true;
+        if (nextAvail !== this.isLookBackAvailable) {
+          this.isLookBackAvailable = nextAvail;
+          this.callbacks.onLookBackAvailabilityChange?.(this.isLookBackAvailable);
+        }
+      }
+
+      // Update Active Entity Encounter (Movement, Alpha, Lifespan, and Disappearance)
+      if (this.activeEncounter) {
+        const enc = this.activeEncounter;
+        enc.timer += effectiveDt;
+
+        // Smooth position interpolation
+        enc.x += (enc.targetX - enc.x) * (2.8 * effectiveDt);
+
+        // Alpha fade in and fade out
+        if (enc.type !== 'E_PHANTOM_FOOTSTEPS' || enc.revealedOnLookBack) {
+          if (enc.timer < 0.4) {
+            enc.alpha = Math.min(enc.maxAlpha, (enc.timer / 0.4) * enc.maxAlpha);
+          } else if (enc.timer > enc.duration - 0.6) {
+            enc.alpha = Math.max(0, ((enc.duration - enc.timer) / 0.6) * enc.maxAlpha);
+          } else {
+            enc.alpha = enc.maxAlpha;
+          }
+        }
+
+        // When encounter expires: ENTITY DISAPPEARS
+        if (enc.timer >= enc.duration) {
+          this.activeEncounter = null;
+        }
+      }
+
+      // 2. Score progression
+      const prevScore = this.score;
+      this.score += GAME_CONSTANTS.SURVIVAL_SCORE_PER_SEC * this.getMultiplier() * effectiveDt;
+
+      // Record check
       if (this.personalBest > 0 && this.score > this.personalBest && !this.isRecordBeaten) {
         this.isRecordBeaten = true;
         sound.playNewRecord();
         this.callbacks.onNewRecord(Math.floor(this.score));
-        this.addFloatingText('🔥 NEW RECORD!', GAME_CONSTANTS.PLAYER_X + 20, GAME_CONSTANTS.GROUND_Y - 80, '#facc15', 22);
+        this.addFloatingText(
+          '🔥 NEW RECORD!',
+          GAME_CONSTANTS.PLAYER_X + 20,
+          GAME_CONSTANTS.GROUND_Y - 80,
+          '#facc15',
+          22
+        );
       }
 
       if (Math.floor(this.score) !== Math.floor(prevScore)) {
-        this.callbacks.onScoreUpdate(Math.floor(this.score), this.comboCount, this.getMultiplier());
+        this.callbacks.onScoreUpdate(
+          Math.floor(this.score),
+          this.comboCount,
+          this.getMultiplier(),
+          Math.floor(this.distanceTraveled)
+        );
       }
 
-      // Check survival achievements
+      // Achievements
       this.callbacks.onAchievementProgress('survival_time', this.runDuration);
       this.callbacks.onAchievementProgress('current_score', Math.floor(this.score));
 
       // 3. Player Physics
-      this.updatePlayerPhysics(dt);
+      this.updatePlayerPhysics(effectiveDt);
 
       // 4. Combo Decay
       if (this.comboCount > 0) {
-        this.comboTimer -= dt * 1000;
+        this.comboTimer -= effectiveDt * 1000;
         if (this.comboTimer <= 0) {
           this.comboCount = 0;
           this.callbacks.onScoreUpdate(Math.floor(this.score), 0, 1);
@@ -318,8 +691,13 @@ export class GameEngine {
 
       // 7. Collectibles Update & Collection
       this.updateCollectibles(frameDist);
+
+      // Check pending story notifications
+      const notifs = story.getPendingNotifications();
+      for (const n of notifs) {
+        this.callbacks.onNewStoryDiscovery?.(n.title, n.subtitle);
+      }
     } else if (this.state === 'GAME_OVER') {
-      // Game over hit animation decay
       this.hitTime += dt;
       this.playerY += this.playerVy;
       this.playerVy += GAME_CONSTANTS.GRAVITY * 0.8;
@@ -350,6 +728,12 @@ export class GameEngine {
       }
     }
 
+    // Glitch alpha decay
+    if (this.lookBackGlitchAlpha > 0) {
+      this.lookBackGlitchAlpha -= dt * 1.5;
+      if (this.lookBackGlitchAlpha < 0) this.lookBackGlitchAlpha = 0;
+    }
+
     // Shake decay
     if (this.shakeIntensity > 0) {
       this.shakeIntensity *= GAME_CONSTANTS.SHAKE_DECAY;
@@ -366,11 +750,14 @@ export class GameEngine {
       this.playerY = GAME_CONSTANTS.GROUND_Y;
       this.playerVy = 0;
 
-      // Landing dust
       if (!this.isGrounded) {
         this.isGrounded = true;
-        this.characterAction = 'run';
-        if (!this.reducedMotion) {
+        if (!this.isLookingBack) {
+          this.characterAction = 'run';
+        }
+
+        const particlesEnabled = storage.getData().settings.particles && !this.reducedMotion;
+        if (particlesEnabled) {
           for (let i = 0; i < 4; i++) {
             this.particles.push({
               x: GAME_CONSTANTS.PLAYER_X - 6 + Math.random() * 12,
@@ -387,7 +774,6 @@ export class GameEngine {
           }
         }
 
-        // Check buffered jump
         if (this.jumpBufferTimer > 0) {
           this.executeJump();
         }
@@ -396,7 +782,9 @@ export class GameEngine {
       this.isGrounded = false;
       this.coyoteTimer -= dt;
       this.jumpBufferTimer -= dt;
-      this.characterAction = 'jump';
+      if (!this.isLookingBack) {
+        this.characterAction = 'jump';
+      }
     }
   }
 
@@ -406,7 +794,6 @@ export class GameEngine {
     if (this.nextObstacleSpawnDist <= 0) {
       this.spawnObstacle();
 
-      // Dynamic spacing based on speed
       const baseSpacing = Math.max(
         GAME_CONSTANTS.MIN_OBSTACLE_SPACING,
         GAME_CONSTANTS.MAX_OBSTACLE_SPACING - this.runDuration * 2.2
@@ -451,7 +838,6 @@ export class GameEngine {
       height = 54;
       y = GAME_CONSTANTS.GROUND_Y + 12 - height;
     } else if (type === 'LASER_HIGH') {
-      // High laser drone: player MUST stay ground to pass under safely!
       width = 44;
       height = 20;
       y = GAME_CONSTANTS.GROUND_Y - 55;
@@ -480,17 +866,25 @@ export class GameEngine {
     let value: number = GAME_CONSTANTS.COIN_VALUES.NORMAL;
     let coinReward: number = GAME_CONSTANTS.COIN_REWARDS.NORMAL;
 
-    if (rand > 0.9) {
+    // Mystery and Rare Spawns
+    if (rand > 0.94) {
+      type = 'MEMORY_SHARD';
+      value = GAME_CONSTANTS.COIN_VALUES.MEMORY_SHARD;
+      coinReward = GAME_CONSTANTS.COIN_REWARDS.MEMORY_SHARD;
+    } else if (rand > 0.88 && this.runDuration > 20) {
+      type = 'CORRUPTED_ANOMALY';
+      value = GAME_CONSTANTS.COIN_VALUES.CORRUPTED_ANOMALY;
+      coinReward = GAME_CONSTANTS.COIN_REWARDS.CORRUPTED_ANOMALY;
+    } else if (rand > 0.8) {
       type = 'PERFECT';
       value = GAME_CONSTANTS.COIN_VALUES.PERFECT;
       coinReward = GAME_CONSTANTS.COIN_REWARDS.PERFECT;
-    } else if (rand > 0.7) {
+    } else if (rand > 0.6) {
       type = 'RARE';
       value = GAME_CONSTANTS.COIN_VALUES.RARE;
       coinReward = GAME_CONSTANTS.COIN_REWARDS.RARE;
     }
 
-    // Altitude: either on ground or elevated requiring jump
     const elevated = Math.random() > 0.5;
     const y = elevated ? GAME_CONSTANTS.GROUND_Y - 45 : GAME_CONSTANTS.GROUND_Y - 6;
 
@@ -510,7 +904,6 @@ export class GameEngine {
   }
 
   private updateObstacles(frameDist: number): void {
-    // Player Hitbox (padded for fairness and good feeling)
     const px = GAME_CONSTANTS.PLAYER_X - 10;
     const py = this.playerY - 22;
     const pw = 20;
@@ -536,8 +929,8 @@ export class GameEngine {
       // Check Near-Miss
       if (!obs.nearMissAwarded && !obs.passed && obs.x < px) {
         const dist = Math.hypot(
-          (px + pw / 2) - (obs.x + obs.width / 2),
-          (py + ph / 2) - (obs.y + obs.height / 2)
+          px + pw / 2 - (obs.x + obs.width / 2),
+          py + ph / 2 - (obs.y + obs.height / 2)
         );
 
         if (dist <= GAME_CONSTANTS.NEAR_MISS_DISTANCE + 24) {
@@ -552,10 +945,10 @@ export class GameEngine {
         this.obstaclesDodgedCount++;
         this.score += GAME_CONSTANTS.OBSTACLE_DODGE_SCORE * this.getMultiplier();
         this.addCombo();
+        story.onObstacleDodged(false, this.currentSpeed);
         this.callbacks.onAchievementProgress('obstacles_dodged', this.obstaclesDodgedCount);
       }
 
-      // Remove off-screen
       if (obs.x + obs.width < -50) {
         this.obstacles.splice(i, 1);
       }
@@ -571,7 +964,6 @@ export class GameEngine {
       col.x -= frameDist;
       col.rotation += 0.05;
 
-      // Distance check for collection
       const dist = Math.hypot(px - col.x, py - col.y);
       if (dist < 34 && !col.collected) {
         col.collected = true;
@@ -589,6 +981,15 @@ export class GameEngine {
   private collectOrb(col: Collectible): void {
     sound.playCollectible(col.type);
 
+    if (col.type === 'MEMORY_SHARD' || col.type === 'CORRUPTED_ANOMALY') {
+      story.onAnomalyCollected(col.type);
+      if (col.type === 'MEMORY_SHARD') {
+        this.triggerEncounter('G_FRAGMENT_APPARITION');
+      } else {
+        this.triggerEncounter('D_BRIEF_STALKER');
+      }
+    }
+
     const earnedCoins = col.coinReward;
     this.coinsEarnedThisRun += earnedCoins;
     const earnedScore = col.value * this.getMultiplier();
@@ -597,12 +998,23 @@ export class GameEngine {
     this.addCombo();
 
     // Visual feedback
-    const color = col.type === 'PERFECT' ? '#facc15' : col.type === 'RARE' ? '#c084fc' : '#38bdf8';
-    this.addFloatingText(`+${col.value}`, col.x, col.y - 10, color, col.type === 'PERFECT' ? 20 : 16);
+    let color = '#38bdf8';
+    let label = `+${col.value}`;
+    if (col.type === 'PERFECT') color = '#facc15';
+    else if (col.type === 'RARE') color = '#c084fc';
+    else if (col.type === 'MEMORY_SHARD') {
+      color = '#e0f2fe';
+      label = `+${col.value} MEMORY`;
+    } else if (col.type === 'CORRUPTED_ANOMALY') {
+      color = '#a855f7';
+      label = `+${col.value} ANOMALY`;
+    }
 
-    // Burst sparkles
-    if (!this.reducedMotion) {
-      const count = col.type === 'PERFECT' ? 14 : 8;
+    this.addFloatingText(label, col.x, col.y - 10, color, col.type === 'MEMORY_SHARD' ? 18 : 16);
+
+    const particlesEnabled = storage.getData().settings.particles && !this.reducedMotion;
+    if (particlesEnabled) {
+      const count = col.type === 'PERFECT' || col.type === 'MEMORY_SHARD' ? 14 : 8;
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 * i) / count;
         const spd = 2 + Math.random() * 3;
@@ -627,6 +1039,12 @@ export class GameEngine {
 
   private triggerNearMiss(x: number, y: number): void {
     sound.playNearMiss();
+    story.onObstacleDodged(true, this.currentSpeed);
+
+    if (navigator.vibrate && storage.getData().settings.vibration) {
+      navigator.vibrate(30);
+    }
+
     this.score += GAME_CONSTANTS.NEAR_MISS_BONUS_SCORE * this.getMultiplier();
     this.addCombo();
 
@@ -641,13 +1059,35 @@ export class GameEngine {
       this.maxComboThisRun = this.comboCount;
     }
 
+    const mult = this.getMultiplier();
+    story.onComboMilestone(mult);
+
     if (this.comboCount % 5 === 0) {
-      sound.playCombo(this.getMultiplier());
-      this.addFloatingText(`COMBO x${this.getMultiplier()}! 🔥`, GAME_CONSTANTS.PLAYER_X + 30, this.playerY - 50, '#f59e0b', 18);
+      sound.playCombo(mult);
+      this.addFloatingText(
+        `COMBO x${mult}! 🔥`,
+        GAME_CONSTANTS.PLAYER_X + 30,
+        this.playerY - 50,
+        '#f59e0b',
+        18
+      );
     }
 
-    this.callbacks.onScoreUpdate(Math.floor(this.score), this.comboCount, this.getMultiplier());
+    this.callbacks.onScoreUpdate(
+      Math.floor(this.score),
+      this.comboCount,
+      mult,
+      Math.floor(this.distanceTraveled)
+    );
     this.callbacks.onAchievementProgress('max_combo', this.maxComboThisRun);
+  }
+
+  public getDistance(): number {
+    return Math.floor(this.distanceTraveled);
+  }
+
+  public isLookBackReady(): boolean {
+    return this.isLookBackAvailable;
   }
 
   public getMultiplier(): number {
@@ -660,11 +1100,17 @@ export class GameEngine {
   }
 
   private triggerScreenShake(intensity: number): void {
-    if (this.reducedMotion) return;
+    if (this.reducedMotion || !storage.getData().settings.screenShake) return;
     this.shakeIntensity = Math.min(GAME_CONSTANTS.MAX_SHAKE_INTENSITY, intensity);
   }
 
-  private addFloatingText(text: string, x: number, y: number, color: string, fontSize: number): void {
+  private addFloatingText(
+    text: string,
+    x: number,
+    y: number,
+    color: string,
+    fontSize: number
+  ): void {
     this.floatingTexts.push({
       id: this.nextEntityId++,
       text,
@@ -683,11 +1129,15 @@ export class GameEngine {
     this.playerVy = -8;
     this.triggerScreenShake(9);
 
+    if (navigator.vibrate && storage.getData().settings.vibration) {
+      navigator.vibrate([60, 40, 100]);
+    }
+
     sound.playHit();
     setTimeout(() => sound.playGameOver(), 120);
 
-    // Shatter particles
-    if (!this.reducedMotion) {
+    const particlesEnabled = storage.getData().settings.particles && !this.reducedMotion;
+    if (particlesEnabled) {
       for (let i = 0; i < 22; i++) {
         const angle = Math.random() * Math.PI * 2;
         const spd = 3 + Math.random() * 5;
@@ -706,13 +1156,23 @@ export class GameEngine {
       }
     }
 
-    // Call game over callback after brief impact animation
+    // Evaluate Run Completion in Story Manager
+    const { newlyUnlockedEnding, newlyUnlockedFragments } = story.evaluateRunCompletion(
+      Math.floor(this.score),
+      this.distanceTraveled,
+      this.runDuration,
+      this.maxComboThisRun
+    );
+
     setTimeout(() => {
       this.callbacks.onGameOver(
         Math.floor(this.score),
         this.maxComboThisRun,
         this.coinsEarnedThisRun,
-        this.runDuration
+        this.runDuration,
+        Math.floor(this.distanceTraveled),
+        newlyUnlockedEnding,
+        newlyUnlockedFragments
       );
     }, 450);
   }
@@ -724,10 +1184,17 @@ export class GameEngine {
     this.ctx.save();
 
     // Screen Shake
-    if (this.shakeIntensity > 0 && !this.reducedMotion) {
+    if (this.shakeIntensity > 0 && !this.reducedMotion && storage.getData().settings.screenShake) {
       const sx = (Math.random() * 2 - 1) * this.shakeIntensity;
       const sy = (Math.random() * 2 - 1) * this.shakeIntensity;
       this.ctx.translate(sx, sy);
+    }
+
+    // Look Back perspective camera glance
+    if (this.isLookingBack) {
+      const lookProgress = Math.sin((1 - this.lookBackTimer / 1.0) * Math.PI);
+      this.ctx.translate(lookProgress * 45, 0);
+      this.ctx.scale(1 + lookProgress * 0.05, 1 + lookProgress * 0.05);
     }
 
     // 1. Background & Theme Transition
@@ -736,19 +1203,22 @@ export class GameEngine {
     // 2. Parallax Grid & Stars
     this.drawParallaxElements();
 
-    // 3. Ground Track
+    // 3. Shadow Entity Stalking Behind Player
+    this.drawShadowEntity();
+
+    // 4. Ground Track
     this.drawGround();
 
-    // 4. Obstacles
+    // 5. Obstacles
     this.drawObstacles();
 
-    // 5. Collectibles
+    // 6. Collectibles
     this.drawCollectibles();
 
-    // 6. Particles
+    // 7. Particles
     this.drawParticles();
 
-    // 7. Player Character
+    // 8. Player Character
     renderCharacter(
       this.ctx,
       GAME_CONSTANTS.PLAYER_X,
@@ -758,8 +1228,13 @@ export class GameEngine {
       this.animClock
     );
 
-    // 8. Floating Texts
+    // 9. Floating Texts
     this.drawFloatingTexts();
+
+    // 10. Look Back Glitch Overlay
+    if (this.lookBackGlitchAlpha > 0) {
+      this.drawGlitchOverlay();
+    }
 
     this.ctx.restore();
   }
@@ -768,24 +1243,19 @@ export class GameEngine {
     const w = GAME_CONSTANTS.BASE_WIDTH;
     const h = GAME_CONSTANTS.BASE_HEIGHT;
 
-    // Day -> Sunset -> Night -> Cyber Neon interpolation
     let topColor = '#0b0f19';
     let btmColor = '#1e1b4b';
 
     if (time < GAME_CONSTANTS.THEME_THRESHOLDS.SUNSET) {
-      // Day / Dawn
       topColor = '#0f172a';
       btmColor = '#1e293b';
     } else if (time < GAME_CONSTANTS.THEME_THRESHOLDS.NIGHT) {
-      // Sunset
       topColor = '#1f132b';
       btmColor = '#4a154b';
     } else if (time < GAME_CONSTANTS.THEME_THRESHOLDS.NEON) {
-      // Deep Night
       topColor = '#070913';
       btmColor = '#111827';
     } else {
-      // Cyber Neon
       topColor = '#080112';
       btmColor = '#2b0938';
     }
@@ -801,7 +1271,6 @@ export class GameEngine {
   private drawParallaxElements(): void {
     const w = GAME_CONSTANTS.BASE_WIDTH;
 
-    // Distant cyber grid lines scrolling slowly
     this.ctx.save();
     this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     this.ctx.lineWidth = 1;
@@ -814,7 +1283,6 @@ export class GameEngine {
       this.ctx.stroke();
     }
 
-    // Horizontal perspective lines
     for (let y = 200; y < GAME_CONSTANTS.GROUND_Y; y += 35) {
       this.ctx.beginPath();
       this.ctx.moveTo(0, y);
@@ -824,17 +1292,30 @@ export class GameEngine {
     this.ctx.restore();
   }
 
+  private drawShadowEntity(): void {
+    if (!this.activeEncounter || this.activeEncounter.alpha <= 0.01) return;
+
+    const enc = this.activeEncounter;
+    renderConsistentEntity(this.ctx, enc.x, enc.y, {
+      stance: enc.stance,
+      animClock: this.animClock,
+      alpha: enc.alpha,
+      scale: enc.scale,
+      facingRight: enc.facingRight,
+      eyeGlowIntensity: enc.eyeGlowIntensity,
+      showRedAura: enc.showRedAura,
+    });
+  }
+
   private drawGround(): void {
     const w = GAME_CONSTANTS.BASE_WIDTH;
     const h = GAME_CONSTANTS.BASE_HEIGHT;
     const groundY = GAME_CONSTANTS.GROUND_Y + 12;
 
-    // Glowing track top border
     this.ctx.save();
     this.ctx.fillStyle = '#0f172a';
     this.ctx.fillRect(0, groundY, w, h - groundY);
 
-    // Neon laser guide line
     this.ctx.strokeStyle = '#06b6d4';
     this.ctx.shadowColor = '#06b6d4';
     this.ctx.shadowBlur = 8;
@@ -844,7 +1325,6 @@ export class GameEngine {
     this.ctx.lineTo(w, groundY);
     this.ctx.stroke();
 
-    // Moving ground ticks
     this.ctx.shadowBlur = 0;
     this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.35)';
     this.ctx.lineWidth = 2;
@@ -862,12 +1342,10 @@ export class GameEngine {
     for (const obs of this.obstacles) {
       this.ctx.save();
       if (obs.type === 'BARRIER_LOW' || obs.type === 'BARRIER_TALL') {
-        // Red neon energy barrier with diagonal hazard stripes
         this.ctx.fillStyle = '#ef4444';
         this.ctx.shadowColor = '#ef4444';
         this.ctx.shadowBlur = 10;
 
-        // Draw pillar / spike
         this.ctx.beginPath();
         this.ctx.moveTo(obs.x + obs.width / 2, obs.y);
         this.ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
@@ -875,7 +1353,6 @@ export class GameEngine {
         this.ctx.closePath();
         this.ctx.fill();
 
-        // Warning core
         this.ctx.fillStyle = '#fee2e2';
         this.ctx.beginPath();
         this.ctx.moveTo(obs.x + obs.width / 2, obs.y + 6);
@@ -884,7 +1361,6 @@ export class GameEngine {
         this.ctx.closePath();
         this.ctx.fill();
       } else if (obs.type === 'LASER_HIGH') {
-        // Drone pod with laser beam below
         this.ctx.fillStyle = '#f97316';
         this.ctx.shadowColor = '#f97316';
         this.ctx.shadowBlur = 8;
@@ -892,12 +1368,10 @@ export class GameEngine {
         drawRoundRect(this.ctx, obs.x, obs.y, obs.width, obs.height, 4);
         this.ctx.fill();
 
-        // Pulsing beam underneath
         const pulse = (Math.sin(obs.state * 10) + 1) * 0.5;
         this.ctx.fillStyle = `rgba(249, 115, 22, ${0.4 + pulse * 0.4})`;
         this.ctx.fillRect(obs.x + 8, obs.y + obs.height, obs.width - 16, 14);
       } else if (obs.type === 'ENERGY_GATE') {
-        // Vertical energy barrier gate
         this.ctx.fillStyle = '#a855f7';
         this.ctx.shadowColor = '#a855f7';
         this.ctx.shadowBlur = 12;
@@ -924,17 +1398,21 @@ export class GameEngine {
       } else if (col.type === 'RARE') {
         color = '#c084fc';
         aura = 'rgba(192, 132, 252, 0.5)';
+      } else if (col.type === 'MEMORY_SHARD') {
+        color = '#e0f2fe';
+        aura = 'rgba(224, 242, 254, 0.8)';
+      } else if (col.type === 'CORRUPTED_ANOMALY') {
+        color = '#a855f7';
+        aura = 'rgba(168, 85, 247, 0.7)';
       }
 
       this.ctx.translate(col.x, cy);
       this.ctx.rotate(col.rotation);
 
-      // Glowing aura
       this.ctx.shadowColor = color;
       this.ctx.shadowBlur = 14;
 
       if (col.type === 'PERFECT') {
-        // Prismatic diamond
         this.ctx.fillStyle = color;
         this.ctx.beginPath();
         this.ctx.moveTo(0, -10);
@@ -943,14 +1421,38 @@ export class GameEngine {
         this.ctx.lineTo(-10, 0);
         this.ctx.closePath();
         this.ctx.fill();
+      } else if (col.type === 'MEMORY_SHARD') {
+        // Glowing prismatic memory crystal
+        this.ctx.fillStyle = color;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, -13);
+        this.ctx.lineTo(8, -2);
+        this.ctx.lineTo(0, 13);
+        this.ctx.lineTo(-8, -2);
+        this.ctx.closePath();
+        this.ctx.fill();
+
+        // Inner core
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        this.ctx.fill();
+      } else if (col.type === 'CORRUPTED_ANOMALY') {
+        // Pulsing dark void orb
+        this.ctx.fillStyle = '#2e1065';
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = color;
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
       } else {
-        // Glowing energy sphere
         this.ctx.fillStyle = color;
         this.ctx.beginPath();
         this.ctx.arc(0, 0, col.type === 'RARE' ? 9 : 7, 0, Math.PI * 2);
         this.ctx.fill();
 
-        // Core gleam
         this.ctx.fillStyle = '#ffffff';
         this.ctx.beginPath();
         this.ctx.arc(-2, -2, 2.5, 0, Math.PI * 2);
@@ -990,5 +1492,27 @@ export class GameEngine {
       this.ctx.fillText(ft.text, ft.x, ft.y);
       this.ctx.restore();
     }
+  }
+
+  private drawGlitchOverlay(): void {
+    const w = GAME_CONSTANTS.BASE_WIDTH;
+    const h = GAME_CONSTANTS.BASE_HEIGHT;
+    this.ctx.save();
+    this.ctx.globalAlpha = this.lookBackGlitchAlpha * 0.45;
+
+    // Scanlines
+    this.ctx.fillStyle = '#ff0055';
+    this.ctx.fillRect(0, Math.random() * h, w, 6);
+    this.ctx.fillStyle = '#00ffff';
+    this.ctx.fillRect(0, Math.random() * h, w, 4);
+
+    // Dark vignette
+    const grad = this.ctx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, w / 1.5);
+    grad.addColorStop(0, 'transparent');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
+    this.ctx.fillStyle = grad;
+    this.ctx.fillRect(0, 0, w, h);
+
+    this.ctx.restore();
   }
 }

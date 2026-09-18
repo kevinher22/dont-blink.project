@@ -1,6 +1,6 @@
 {
   "name": "DON'T BLINK",
-  "description": "A fast, addictive-to-master browser arcade game. Play, beat your score, and challenge your friends.",
+  "description": "A fast, atmospheric psychological runner. Run through endless cyber shadows, uncover memory fragments, survive the stalking presence, and discover all 7 narrative endings.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
