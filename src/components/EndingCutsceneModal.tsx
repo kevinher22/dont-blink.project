@@ -12,6 +12,13 @@ interface EndingCutsceneModalProps {
   onClose: () => void;
 }
 
+interface EndingDialogueLine {
+  id: string;
+  en: string;
+  timeSec: number;
+  durationSec?: number;
+}
+
 interface EndingSceneConfig {
   artworkUrl: string;
   cameraAnim: {
@@ -20,11 +27,7 @@ interface EndingSceneConfig {
     y: [number, number];
     duration: number;
   };
-  dialogueSequence: {
-    id: string;
-    en: string;
-    timeSec: number;
-  }[];
+  dialogueSequence: EndingDialogueLine[];
   ambientMood: 'NORMAL' | 'INTENSE' | 'DANGER' | 'HORROR' | 'ENDING';
   accentColor: string;
 }
@@ -43,11 +46,13 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
         id: 'Setelah semua yang terjadi... akhirnya aku berhasil keluar.',
         en: 'After everything that happened... I finally made it out.',
         timeSec: 1.5,
+        durationSec: 3.2,
       },
       {
         id: '...kan?',
         en: '...right?',
         timeSec: 6.0,
+        durationSec: 2.2,
       },
     ],
     ambientMood: 'NORMAL',
@@ -65,12 +70,14 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
       {
         id: 'Data terminal fasilitas mulai membuka rekam jejak yang terkunci...',
         en: 'The facility terminal begins unlocking forbidden telemetry logs...',
-        timeSec: 1.2,
+        timeSec: 1.5,
+        durationSec: 3.2,
       },
       {
         id: 'Aku akhirnya tahu apa yang selama ini mengejarku.',
         en: 'I finally know what has been chasing me all this time.',
-        timeSec: 5.5,
+        timeSec: 5.8,
+        durationSec: 2.8,
       },
     ],
     ambientMood: 'NORMAL',
@@ -89,11 +96,13 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
         id: 'Kau mengabaikan aturan mutlak... Kau menoleh ke belakang.',
         en: 'You broke the absolute command... You turned to look back.',
         timeSec: 1.0,
+        durationSec: 2.8,
       },
       {
         id: 'Seharusnya aku nggak melihat...',
         en: "I shouldn't have looked back...",
         timeSec: 4.8,
+        durationSec: 2.2,
       },
     ],
     ambientMood: 'HORROR',
@@ -112,11 +121,13 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
         id: 'Aku berhenti takut.',
         en: 'I stopped being afraid.',
         timeSec: 1.5,
+        durationSec: 2.5,
       },
       {
         id: 'Dan entah kenapa... dia juga berhenti mengejarku.',
         en: 'And somehow... it stopped chasing me too.',
         timeSec: 5.2,
+        durationSec: 3.0,
       },
     ],
     ambientMood: 'DANGER',
@@ -134,12 +145,14 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
       {
         id: 'Fragmen kristal masa lalu beresonansi dengan sirkuit sarafmu.',
         en: 'The crystal shards of the past resonate with your neural network.',
-        timeSec: 1.2,
+        timeSec: 1.5,
+        durationSec: 3.2,
       },
       {
         id: 'Sekarang... aku ingat semuanya.',
         en: 'Now... I remember everything.',
-        timeSec: 5.5,
+        timeSec: 5.8,
+        durationSec: 2.8,
       },
     ],
     ambientMood: 'NORMAL',
@@ -158,11 +171,13 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
         id: 'Tempat ini... ini bukan jalan keluar.',
         en: "This place... this isn't an exit.",
         timeSec: 1.5,
+        durationSec: 2.8,
       },
       {
         id: 'YOU NEVER ESCAPED. Siklus pelarian tidak pernah berakhir.',
         en: 'YOU NEVER ESCAPED. The endless corridor continues.',
-        timeSec: 6.0,
+        timeSec: 5.8,
+        durationSec: 3.2,
       },
     ],
     ambientMood: 'HORROR',
@@ -181,11 +196,13 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
         id: 'Jadi selama ini...',
         en: 'So all this time...',
         timeSec: 1.5,
+        durationSec: 2.6,
       },
       {
         id: 'Aku bukan sedang melarikan diri darinya.',
         en: "I wasn't running away from it.",
-        timeSec: 6.0,
+        timeSec: 5.8,
+        durationSec: 3.2,
       },
     ],
     ambientMood: 'ENDING',
@@ -196,7 +213,7 @@ const ENDING_CONFIGS: Record<string, EndingSceneConfig> = {
 export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending, onClose }) => {
   const lang = i18n.getLanguage();
   const [elapsed, setElapsed] = useState(0);
-  const [currentDialogueIndex, setCurrentDialogueIndex] = useState(0);
+  const [activeDialogue, setActiveDialogue] = useState<{ id: string; en: string; index: number } | null>(null);
   const [isFinished, setIsFinished] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
   const reqFrameRef = useRef<number | null>(null);
@@ -213,7 +230,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
     sound.playEndingUnlocked();
     startTimeRef.current = Date.now();
     setElapsed(0);
-    setCurrentDialogueIndex(0);
+    setActiveDialogue(null);
     setIsFinished(false);
 
     // Audio cue sequence
@@ -237,14 +254,17 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
         renderEndingScene(ctx, endingId, sec, playerSkin);
       }
 
-      // Determine active dialogue line
-      let activeIndex = 0;
+      // Determine active dialogue line with precise start and duration window
+      let currentActive: { id: string; en: string; index: number } | null = null;
       for (let i = 0; i < config.dialogueSequence.length; i++) {
-        if (sec >= config.dialogueSequence[i].timeSec) {
-          activeIndex = i;
+        const item = config.dialogueSequence[i];
+        const dur = item.durationSec ?? 3.0;
+        if (sec >= item.timeSec && sec < item.timeSec + dur) {
+          currentActive = { id: item.id, en: item.en, index: i };
+          break;
         }
       }
-      setCurrentDialogueIndex(activeIndex);
+      setActiveDialogue(currentActive);
 
       if (sec >= config.cameraAnim.duration) {
         setIsFinished(true);
@@ -264,8 +284,6 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
   }, [ending, endingId, config, playerSkin]);
 
   if (!ending) return null;
-
-  const currentDialogue = config.dialogueSequence[currentDialogueIndex] || config.dialogueSequence[0];
 
   return (
     <div
@@ -340,37 +358,54 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
         </div>
 
         {/* Ending Title Overlay at Top */}
-        <div className="absolute top-14 left-0 right-0 text-center z-10 pointer-events-none px-6">
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="absolute top-11 sm:top-14 left-0 right-0 text-center z-10 pointer-events-none px-3 sm:px-6"
+        >
           <h2
-            className={`text-xl sm:text-2xl md:text-3xl font-black font-['Chakra_Petch'] tracking-widest uppercase drop-shadow-[0_0_15px_rgba(0,0,0,0.8)] ${
+            className={`text-base sm:text-2xl md:text-3xl font-black font-['Chakra_Petch'] tracking-widest uppercase drop-shadow-[0_0_15px_rgba(0,0,0,0.85)] ${
               isTrueEnding ? 'text-amber-300' : 'text-slate-100'
             }`}
           >
             {lang === 'id' ? ending.title.id : ending.title.en}
           </h2>
-          <p className="text-xs sm:text-sm font-mono text-cyan-300 tracking-wider drop-shadow-md">
+          <p className="text-[10px] sm:text-sm font-mono text-cyan-300 tracking-wider drop-shadow-md">
             {lang === 'id' ? ending.subtitle.id : ending.subtitle.en}
           </p>
-        </div>
+        </motion.div>
 
-        {/* Cinematic Subtitles / Dialogue Box at Bottom */}
-        <div className="absolute bottom-6 left-6 right-6 z-20 flex flex-col items-center pointer-events-auto">
-          <div className="w-full max-w-2xl bg-black/75 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-2xl text-center space-y-3">
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={currentDialogueIndex}
+        {/* Subtle, Non-Intrusive Cinematic Subtitles */}
+        <div className="absolute bottom-3 sm:bottom-6 left-3 sm:left-6 right-3 sm:right-6 z-20 flex flex-col items-center pointer-events-none">
+          <AnimatePresence mode="wait">
+            {activeDialogue && (
+              <motion.div
+                key={`dialogue-${activeDialogue.index}`}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.3 }}
-                className="text-slate-100 font-sans text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-line italic font-medium"
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="max-w-[92%] sm:max-w-xl bg-black/60 backdrop-blur-md border border-white/15 rounded-2xl sm:rounded-full px-4 py-2 sm:px-6 sm:py-2.5 shadow-2xl text-center pointer-events-auto"
               >
-                "{lang === 'id' ? currentDialogue.id : currentDialogue.en}"
-              </motion.p>
-            </AnimatePresence>
+                <p className="text-slate-100 font-sans text-xs sm:text-sm md:text-base leading-relaxed whitespace-pre-line italic font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">
+                  "{lang === 'id' ? activeDialogue.id : activeDialogue.en}"
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
-            {/* Action Button: Show when finished or user can proceed */}
-            <div className="pt-1 flex justify-center">
+        {/* Action Button: Appears cleanly after dialogue and visual finish */}
+        <AnimatePresence>
+          {isFinished && (
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+              className="absolute bottom-3 sm:bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-auto"
+            >
               <button
                 id="btn-continue-after-ending"
                 type="button"
@@ -378,18 +413,18 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
                   sound.playClick();
                   onClose();
                 }}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-mono font-bold tracking-wider text-xs sm:text-sm transition-all shadow-lg cursor-pointer ${
-                  isFinished
-                    ? 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/30 scale-105 animate-pulse'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-mono font-bold tracking-wider text-xs sm:text-sm transition-all shadow-xl cursor-pointer ${
+                  isTrueEnding
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 shadow-amber-500/30 animate-pulse'
+                    : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/30 animate-pulse'
                 }`}
               >
                 <span>{lang === 'id' ? 'LANJUTKAN' : 'CONTINUE'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-            </div>
-          </div>
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Cinematic 2.39:1 Letterbox Bars */}
         <div className="absolute top-0 left-0 right-0 h-2 bg-black z-30 pointer-events-none" />

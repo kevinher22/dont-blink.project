@@ -17,6 +17,8 @@ interface CutsceneShot {
   image?: string;
   dialogueId?: string;
   dialogueEn?: string;
+  dialogueDelayMs?: number;
+  dialogueDurationMs?: number;
   titleId?: string;
   titleEn?: string;
   subtitleId?: string;
@@ -37,42 +39,52 @@ const SHOTS: CutsceneShot[] = [
   // SHOT 2: Player standing in the original location from the opening. Total silence.
   {
     id: 2,
-    durationMs: 3200,
+    durationMs: 3600,
     image: '/assets/story/endings/ending-05-the-memory.svg',
     dialogueId: 'Koridor awal. Semua suara langkah kaki dan alarm telah lenyap...',
     dialogueEn: 'The initial corridor. All footsteps and alarms have vanished into complete silence...',
+    dialogueDelayMs: 600,
+    dialogueDurationMs: 2500,
   },
   // SHOT 3: Mysterious entity appears. It does not chase. It simply stands there peacefully.
   {
     id: 3,
-    durationMs: 3200,
+    durationMs: 3600,
     image: '/assets/story/endings/ending-02-the-truth.svg',
     dialogueId: 'Entitas itu hadir di hadapanmu. Namun kali ini... ia tidak mengejar.',
     dialogueEn: 'The entity stands before you. But this time... it does not chase.',
+    dialogueDelayMs: 600,
+    dialogueDurationMs: 2500,
   },
   // SHOT 4: Player slowly turns toward it. No running. No fear.
   {
     id: 4,
-    durationMs: 3000,
+    durationMs: 3500,
     image: '/assets/story/endings/ending-04-the-thing.svg',
     dialogueId: 'Kau menatap langsung ke arahnya. Tidak ada lagi rasa takut. Tidak ada alasan untuk lari.',
     dialogueEn: 'You gaze directly into it. No longer afraid. No reason left to run.',
+    dialogueDelayMs: 600,
+    dialogueDurationMs: 2400,
   },
   // SHOT 5: Camera moves closer to player and entity. Visual clues from story fragments.
   {
     id: 5,
-    durationMs: 3400,
+    durationMs: 3800,
     image: '/assets/story/endings/ending-07-dont-blink.svg',
     dialogueId: 'Semua fragmen menyatu. Entitas ini bukanlah pemburu—melainkan cerminan kesadaranmu sendiri yang menjaga jiwamu tetap bernyawa.',
     dialogueEn: 'The fragments align. The entity was never a hunter—it was your own fractured consciousness keeping you alive.',
+    dialogueDelayMs: 500,
+    dialogueDurationMs: 2800,
   },
   // SHOT 6: The Memorable Reveal Dialogue
   {
     id: 6,
-    durationMs: 4000,
+    durationMs: 4200,
     image: '/assets/story/final/final-cutscene.svg',
     dialogueId: '"Jadi akhirnya... kita sampai di sini.\n\nTetapi kau masih belum tahu alasannya."',
     dialogueEn: '"So finally... we have reached this place.\n\nBut you still don\'t know why."',
+    dialogueDelayMs: 600,
+    dialogueDurationMs: 3100,
   },
   // SHOT 7: Fade to light/darkness. DON'T BLINK // THE STORY CONTINUES...
   {
@@ -93,6 +105,7 @@ export const FinalStoryCutsceneModal: React.FC<FinalStoryCutsceneModalProps> = (
   const lang = i18n.getLanguage();
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
   const [shot1ImageIndex, setShot1ImageIndex] = useState(0);
+  const [isDialogueVisible, setIsDialogueVisible] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shotStartTimeRef = useRef<number>(Date.now());
   const playerSkin = storage.getData().selectedSkin || 'default';

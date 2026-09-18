@@ -146,6 +146,13 @@ export class GameEngine {
     this.reducedMotion = reduced;
   }
 
+  // Responsive Viewport Metrics (Uniform scale preserves exact aspect ratio without distortion)
+  public viewportScale: number = 1;
+  public viewportOffsetX: number = 0;
+  public viewportOffsetY: number = 0;
+  public extraWidth: number = 0;
+  public extraHeight: number = 0;
+
   public setupCanvasDimensions(): void {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -166,6 +173,19 @@ export class GameEngine {
       this.canvas.width = targetW;
       this.canvas.height = targetH;
     }
+
+    // 1. Calculate uniform scale factor: ALWAYS keeps 100% true aspect ratio (no stretching/squashing)
+    const scaleX = this.canvas.width / GAME_CONSTANTS.BASE_WIDTH;
+    const scaleY = this.canvas.height / GAME_CONSTANTS.BASE_HEIGHT;
+    this.viewportScale = Math.min(scaleX, scaleY);
+
+    // 2. Compute letterbox / pillarbox offsets to center the 960x540 gameplay space safely
+    this.viewportOffsetX = (this.canvas.width - GAME_CONSTANTS.BASE_WIDTH * this.viewportScale) / 2;
+    this.viewportOffsetY = (this.canvas.height - GAME_CONSTANTS.BASE_HEIGHT * this.viewportScale) / 2;
+
+    // 3. Virtual units extended beyond standard 960x540 bounds to fill full device bleed seamlessly
+    this.extraWidth = this.viewportScale > 0 ? this.viewportOffsetX / this.viewportScale : 0;
+    this.extraHeight = this.viewportScale > 0 ? this.viewportOffsetY / this.viewportScale : 0;
   }
 
   public applyTransform(): void {
@@ -174,9 +194,8 @@ export class GameEngine {
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
-    const scaleX = this.canvas.width / GAME_CONSTANTS.BASE_WIDTH;
-    const scaleY = this.canvas.height / GAME_CONSTANTS.BASE_HEIGHT;
-    this.ctx.scale(scaleX, scaleY);
+    this.ctx.translate(this.viewportOffsetX, this.viewportOffsetY);
+    this.ctx.scale(this.viewportScale, this.viewportScale);
   }
 
   // --- Controls & Inputs ---
@@ -505,6 +524,18 @@ export class GameEngine {
 
   public renderMenuPreview(): void {
     this.animClock += 0.016;
+
+    // Clear whole physical canvas buffer in dark ambient void
+    this.ctx.save();
+    if (typeof this.ctx.resetTransform === 'function') {
+      this.ctx.resetTransform();
+    } else {
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    this.ctx.fillStyle = '#070913';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.restore();
+
     this.applyTransform();
     this.ctx.save();
     this.drawBackground(0);
@@ -1180,6 +1211,17 @@ export class GameEngine {
   // --- Rendering ---
 
   private render(): void {
+    // Clear whole physical canvas buffer in dark ambient void
+    this.ctx.save();
+    if (typeof this.ctx.resetTransform === 'function') {
+      this.ctx.resetTransform();
+    } else {
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    this.ctx.fillStyle = '#070913';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.restore();
+
     this.applyTransform();
     this.ctx.save();
 
@@ -1240,8 +1282,10 @@ export class GameEngine {
   }
 
   private drawBackground(time: number): void {
-    const w = GAME_CONSTANTS.BASE_WIDTH;
-    const h = GAME_CONSTANTS.BASE_HEIGHT;
+    const startX = -this.extraWidth;
+    const endX = GAME_CONSTANTS.BASE_WIDTH + this.extraWidth;
+    const startY = -this.extraHeight;
+    const endY = GAME_CONSTANTS.BASE_HEIGHT + this.extraHeight;
 
     let topColor = '#0b0f19';
     let btmColor = '#1e1b4b';
@@ -1260,23 +1304,25 @@ export class GameEngine {
       btmColor = '#2b0938';
     }
 
-    const grad = this.ctx.createLinearGradient(0, 0, 0, h);
+    const grad = this.ctx.createLinearGradient(0, startY, 0, endY);
     grad.addColorStop(0, topColor);
     grad.addColorStop(1, btmColor);
 
     this.ctx.fillStyle = grad;
-    this.ctx.fillRect(0, 0, w, h);
+    this.ctx.fillRect(startX, startY, endX - startX, endY - startY);
   }
 
   private drawParallaxElements(): void {
-    const w = GAME_CONSTANTS.BASE_WIDTH;
+    const startX = -this.extraWidth;
+    const endX = GAME_CONSTANTS.BASE_WIDTH + this.extraWidth;
 
     this.ctx.save();
     this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     this.ctx.lineWidth = 1;
 
     const gridOffset = (this.distanceTraveled * 0.25) % 40;
-    for (let x = -gridOffset; x < w; x += 40) {
+    const firstCol = Math.floor(startX / 40) * 40 - gridOffset;
+    for (let x = firstCol; x < endX; x += 40) {
       this.ctx.beginPath();
       this.ctx.moveTo(x, 180);
       this.ctx.lineTo(x, GAME_CONSTANTS.GROUND_Y);
@@ -1285,8 +1331,8 @@ export class GameEngine {
 
     for (let y = 200; y < GAME_CONSTANTS.GROUND_Y; y += 35) {
       this.ctx.beginPath();
-      this.ctx.moveTo(0, y);
-      this.ctx.lineTo(w, y);
+      this.ctx.moveTo(startX, y);
+      this.ctx.lineTo(endX, y);
       this.ctx.stroke();
     }
     this.ctx.restore();
@@ -1308,28 +1354,30 @@ export class GameEngine {
   }
 
   private drawGround(): void {
-    const w = GAME_CONSTANTS.BASE_WIDTH;
-    const h = GAME_CONSTANTS.BASE_HEIGHT;
+    const startX = -this.extraWidth;
+    const endX = GAME_CONSTANTS.BASE_WIDTH + this.extraWidth;
     const groundY = GAME_CONSTANTS.GROUND_Y + 12;
+    const bottomY = GAME_CONSTANTS.BASE_HEIGHT + this.extraHeight;
 
     this.ctx.save();
     this.ctx.fillStyle = '#0f172a';
-    this.ctx.fillRect(0, groundY, w, h - groundY);
+    this.ctx.fillRect(startX, groundY, endX - startX, bottomY - groundY);
 
     this.ctx.strokeStyle = '#06b6d4';
     this.ctx.shadowColor = '#06b6d4';
     this.ctx.shadowBlur = 8;
     this.ctx.lineWidth = 3;
     this.ctx.beginPath();
-    this.ctx.moveTo(0, groundY);
-    this.ctx.lineTo(w, groundY);
+    this.ctx.moveTo(startX, groundY);
+    this.ctx.lineTo(endX, groundY);
     this.ctx.stroke();
 
     this.ctx.shadowBlur = 0;
     this.ctx.strokeStyle = 'rgba(6, 182, 212, 0.35)';
     this.ctx.lineWidth = 2;
     const tickOffset = (this.distanceTraveled * 0.8) % 30;
-    for (let x = -tickOffset; x < w; x += 30) {
+    const firstTick = Math.floor(startX / 30) * 30 - tickOffset;
+    for (let x = firstTick; x < endX; x += 30) {
       this.ctx.beginPath();
       this.ctx.moveTo(x, groundY + 2);
       this.ctx.lineTo(x - 8, groundY + 16);
@@ -1495,23 +1543,37 @@ export class GameEngine {
   }
 
   private drawGlitchOverlay(): void {
-    const w = GAME_CONSTANTS.BASE_WIDTH;
-    const h = GAME_CONSTANTS.BASE_HEIGHT;
+    const startX = -this.extraWidth;
+    const endX = GAME_CONSTANTS.BASE_WIDTH + this.extraWidth;
+    const startY = -this.extraHeight;
+    const endY = GAME_CONSTANTS.BASE_HEIGHT + this.extraHeight;
+    const totalW = endX - startX;
+    const totalH = endY - startY;
+
     this.ctx.save();
     this.ctx.globalAlpha = this.lookBackGlitchAlpha * 0.45;
 
     // Scanlines
     this.ctx.fillStyle = '#ff0055';
-    this.ctx.fillRect(0, Math.random() * h, w, 6);
+    this.ctx.fillRect(startX, startY + Math.random() * totalH, totalW, 6);
     this.ctx.fillStyle = '#00ffff';
-    this.ctx.fillRect(0, Math.random() * h, w, 4);
+    this.ctx.fillRect(startX, startY + Math.random() * totalH, totalW, 4);
 
-    // Dark vignette
-    const grad = this.ctx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, w / 1.5);
+    // Dark vignette centered on view
+    const centerX = GAME_CONSTANTS.BASE_WIDTH / 2;
+    const centerY = GAME_CONSTANTS.BASE_HEIGHT / 2;
+    const grad = this.ctx.createRadialGradient(
+      centerX,
+      centerY,
+      80,
+      centerX,
+      centerY,
+      Math.max(totalW, totalH) * 0.6
+    );
     grad.addColorStop(0, 'transparent');
     grad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
     this.ctx.fillStyle = grad;
-    this.ctx.fillRect(0, 0, w, h);
+    this.ctx.fillRect(startX, startY, totalW, totalH);
 
     this.ctx.restore();
   }

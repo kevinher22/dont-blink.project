@@ -58,7 +58,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   return (
     <div
       id="main-menu"
-      className="absolute inset-0 flex flex-col justify-between items-center p-6 select-none bg-gradient-to-b from-[#090b14]/75 via-[#0b0e1a]/60 to-[#090b14]/85 backdrop-blur-[2px] z-10"
+      className="absolute inset-0 flex flex-col justify-between items-center p-3 sm:p-6 select-none bg-gradient-to-b from-[#090b14]/75 via-[#0b0e1a]/60 to-[#090b14]/85 backdrop-blur-[2px] z-10 overflow-y-auto max-h-full pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
       {/* Top Bar: Currency, Language & Settings */}
       <div className="w-full max-w-lg flex justify-between items-center">

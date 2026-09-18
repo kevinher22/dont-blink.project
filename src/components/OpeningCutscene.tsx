@@ -430,14 +430,14 @@ export const OpeningCutscene: React.FC<OpeningCutsceneProps> = ({ onComplete }) 
   return (
     <div
       id="opening-cutscene"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-black text-white p-4 sm:p-6 select-none overflow-hidden"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-black text-white p-3 sm:p-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] select-none overflow-hidden"
     >
-      {/* 60 FPS HTML5 Canvas Simulation Background */}
+      {/* 60 FPS HTML5 Canvas Simulation Background - object-contain preserves full 960x540 scene without cropping subjects */}
       <canvas
         ref={canvasRef}
         width={960}
         height={540}
-        className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
       />
 
       {/* CRT Scanline & Cinematic Vignette Overlays */}

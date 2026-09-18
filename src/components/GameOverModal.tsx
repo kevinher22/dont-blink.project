@@ -91,9 +91,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   return (
     <div
       id="game-over-modal"
-      className="absolute inset-0 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md z-30 select-none animate-fadeIn"
+      className="absolute inset-0 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md z-30 select-none animate-fadeIn"
     >
-      <div className="w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col items-center text-center">
+      <div className="w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col items-center text-center max-h-[92vh] overflow-y-auto">
         {/* Record Badge or Game Over Header */}
         {isNewRecord ? (
           <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 border border-amber-500/50 text-amber-400 text-xs font-black tracking-widest uppercase mb-3 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse">

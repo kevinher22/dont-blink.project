@@ -56,6 +56,14 @@ export default function App() {
   const [coinsEarnedRun, setCoinsEarnedRun] = useState<number>(0);
   const [showTutorialHint, setShowTutorialHint] = useState<boolean>(false);
 
+  // Responsive Device Orientation State (Automatically adapts Android Portrait vs Landscape vs Desktop)
+  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerHeight > window.innerWidth;
+    }
+    return false;
+  });
+
   // Story & Endings Modal States
   const [isStoryJournalOpen, setIsStoryJournalOpen] = useState<boolean>(false);
   const [isEndingsModalOpen, setIsEndingsModalOpen] = useState<boolean>(false);
@@ -364,21 +372,46 @@ export default function App() {
     engine.setupCanvasDimensions();
     engine.renderMenuPreview();
 
-    // Resize Observer to keep crisp aspect ratio on screen changes
-    const resizeObserver = new ResizeObserver(() => {
+    // Check orientation and setup dimensions dynamically
+    const updateDimensionsAndOrientation = () => {
+      const portrait = window.innerHeight > window.innerWidth;
+      setIsPortrait(portrait);
       engine.setupCanvasDimensions();
       if (gameStateRef.current === 'MENU') {
         engine.renderMenuPreview();
       }
+    };
+
+    // Resize Observer to keep crisp aspect ratio on screen or container changes
+    const resizeObserver = new ResizeObserver(() => {
+      updateDimensionsAndOrientation();
     });
 
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }
 
+    // Window orientation and viewport change listeners
+    const onWindowChange = () => {
+      updateDimensionsAndOrientation();
+      // Second tick handles mobile browser address bar transition
+      requestAnimationFrame(updateDimensionsAndOrientation);
+    };
+
+    window.addEventListener('resize', onWindowChange, { passive: true });
+    window.addEventListener('orientationchange', onWindowChange, { passive: true });
+    if (window.screen?.orientation) {
+      window.screen.orientation.addEventListener('change', onWindowChange);
+    }
+
     return () => {
       engine.stop();
       resizeObserver.disconnect();
+      window.removeEventListener('resize', onWindowChange);
+      window.removeEventListener('orientationchange', onWindowChange);
+      if (window.screen?.orientation) {
+        window.screen.orientation.removeEventListener('change', onWindowChange);
+      }
     };
   }, []);
 
@@ -589,12 +622,16 @@ export default function App() {
         }
       }}
     >
-      {/* Game Canvas Container */}
-      <div className="relative w-full max-w-5xl h-full max-h-[640px] flex items-center justify-center">
+      {/* Game Canvas Container: Seamless edge-to-edge in portrait mode, constrained aspect on desktop/landscape */}
+      <div
+        className={`relative w-full h-full flex items-center justify-center transition-all duration-200 ${
+          isPortrait ? 'max-w-full max-h-full' : 'max-w-5xl max-h-[640px]'
+        }`}
+      >
         <canvas
           id="game-canvas"
           ref={canvasRef}
-          className="w-full h-full object-contain block cursor-pointer"
+          className="w-full h-full block cursor-pointer"
           onPointerDown={(e) => {
             if (gameState === 'PLAYING') {
               e.stopPropagation();
