@@ -116,10 +116,6 @@ export interface LeaderboardEntry {
   coinsEarned: number;
   timestamp: number;
   skinUsed: SkinId;
-  playerName?: string;
-  display_name?: string;
-  distance?: number;
-  endingId?: string | null;
 }
 
 export interface UserSettings {

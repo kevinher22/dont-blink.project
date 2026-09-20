@@ -6,10 +6,10 @@ import { securityService } from './security';
 export interface OnlineLeaderboardEntry {
   id: string;
   created_at?: string;
-  player_name: string;
+  display_name: string;
   score: number;
-  distance: number;
-  run_duration: number;
+  distance?: number;
+  run_duration?: number;
   ending_id?: string | null;
   skin_id?: string;
 }
@@ -37,6 +37,11 @@ export interface ILeaderboardService {
 }
 
 const PLAYER_NAME_KEY = 'dont_blink_player_name';
+
+const DEFAULT_SUPABASE_URL = 'https://nqzonmdosoxdgdezngwp.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_ANON_KEY) ||
+  'sb_publishable_hHnY4C3RetDPcMk_6v8QsA_uqVBrL1R';
 
 export function getStoredPlayerName(): string {
   if (typeof window === 'undefined') return 'Runner';
@@ -71,9 +76,10 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
   constructor() {
     this.url =
       (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-      'https://nqzonmdosoxdgdezngwp.supabase.co';
+      DEFAULT_SUPABASE_URL;
     this.anonKey =
-      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || '';
+      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
+      DEFAULT_SUPABASE_ANON_KEY;
 
     this.initClient();
   }
@@ -106,23 +112,25 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     return setStoredPlayerName(name);
   }
 
-  public async getTopScores(limit = 20): Promise<LeaderboardEntry[]> {
+  public async getTopScores(limit = 50): Promise<LeaderboardEntry[]> {
     const data = storage.getData();
     return [...data.history].slice(0, limit);
   }
 
-  public async getGlobalTopScores(limit = 20): Promise<OnlineLeaderboardEntry[]> {
+  public async getGlobalTopScores(limit = 100): Promise<OnlineLeaderboardEntry[]> {
     this.initClient();
     if (!this.client) {
       return [];
     }
 
     try {
+      // ACTUAL Supabase schema columns: id, created_at, display_name, score
+      // Does NOT select non-existent columns (distance, run_duration, ending_id, skin_id) to eliminate HTTP 400
       const { data, error } = await this.client
         .from('leaderboard')
-        .select('id, created_at, player_name, score, distance, run_duration, ending_id, skin_id')
+        .select('id, created_at, display_name, score')
         .order('score', { ascending: false })
-        .limit(Math.min(50, Math.max(1, limit)));
+        .limit(Math.min(100, Math.max(1, limit)));
 
       if (error) {
         console.warn("DON'T BLINK: Leaderboard query warning:", error.message);
@@ -165,6 +173,7 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
       durationSeconds: validation.sanitizedDuration,
       coinsEarned: validation.sanitizedCoins,
       playerName: validation.sanitizedPlayerName,
+      display_name: validation.sanitizedPlayerName,
       endingId: validation.sanitizedEndingId,
       skinUsed: validation.sanitizedSkinId,
     };
@@ -208,14 +217,11 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     this.initClient();
     if (this.client) {
       try {
+        // ACTUAL Supabase schema payload: ONLY display_name and score
+        // Excludes distance, run_duration, ending_id, skin_id, run_session_id to match actual table schema
         const payload = {
-          player_name: validation.sanitizedPlayerName,
+          display_name: validation.sanitizedPlayerName,
           score: validation.sanitizedScore,
-          distance: validation.sanitizedDistance,
-          run_duration: validation.sanitizedDuration,
-          ending_id: validation.sanitizedEndingId,
-          skin_id: validation.sanitizedSkinId,
-          run_session_id: runSessionId || null,
         };
 
         const { error } = await this.client.from('leaderboard').insert([payload]);
@@ -224,7 +230,7 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
           securityService.recordOnlineSubmissionSuccess();
         } else {
           submitMessage = error.message;
-          console.warn("DON'T BLINK: Supabase submission deferred:", error.message);
+          console.warn("DON'T BLINK: Supabase submission warning:", error.message);
         }
       } catch (err: any) {
         submitMessage = 'Network connection unavailable';

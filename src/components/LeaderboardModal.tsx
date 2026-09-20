@@ -41,8 +41,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
     setIsLoading(true);
     try {
       const [local, global] = await Promise.all([
-        leaderboardService.getTopScores(25),
-        leaderboardService.getGlobalTopScores(30),
+        leaderboardService.getTopScores(50),
+        leaderboardService.getGlobalTopScores(100),
       ]);
       setLocalEntries(local);
       setGlobalEntries(global);
@@ -227,7 +227,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
               globalEntries.map((entry, idx) => {
                 const rank = idx + 1;
                 const isCurrentPlayer =
-                  entry.player_name.toLowerCase() === playerName.toLowerCase();
+                  (entry.display_name || '').toLowerCase() === playerName.toLowerCase();
 
                 return (
                   <div
@@ -263,7 +263,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                               isCurrentPlayer ? 'text-cyan-300' : 'text-white'
                             }`}
                           >
-                            {entry.player_name || 'Anonymous Runner'}
+                            {entry.display_name || 'Anonymous Runner'}
                           </span>
                           {isCurrentPlayer && (
                             <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
@@ -273,13 +273,28 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                         </div>
 
                         <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-slate-400 font-mono">
-                          <span className="flex items-center gap-0.5 text-cyan-400">
-                            <Navigation className="w-2.5 h-2.5" /> {entry.distance || 0}m
-                          </span>
-                          <span>•</span>
-                          <span className="flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5 text-slate-500" /> {entry.run_duration || 0}s
-                          </span>
+                          {entry.distance !== undefined && entry.distance > 0 ? (
+                            <>
+                              <span className="flex items-center gap-0.5 text-cyan-400">
+                                <Navigation className="w-2.5 h-2.5" /> {entry.distance}m
+                              </span>
+                              <span>•</span>
+                            </>
+                          ) : null}
+                          {entry.created_at ? (
+                            <span className="flex items-center gap-1 text-slate-400">
+                              <Clock className="w-2.5 h-2.5 text-slate-500" />
+                              {new Date(entry.created_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">
+                              {lang === 'id' ? 'Rekor Resmi' : 'Verified Record'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -3,126 +3,11 @@ import { storage } from './storage';
 export type MusicMood = 'NORMAL' | 'INTENSE' | 'DANGER' | 'HORROR' | 'ENDING';
 
 class SoundSystem {
-  // Maximum controlled game audio gain boost target: ~3.8x (approx 400% of baseline)
-  private static readonly MASTER_GAIN_BOOST = 3.8;
-
   private ctx: AudioContext | null = null;
   private isMusicPlaying = false;
   private musicInterval: number | null = null;
   private musicStep = 0;
   private currentMood: MusicMood = 'NORMAL';
-  private gestureListenerAttached = false;
-
-  // Web Audio routing & gain control hierarchy
-  private masterGainNode: GainNode | null = null;
-  private sfxGainNode: GainNode | null = null;
-  private musicGainNode: GainNode | null = null;
-  private compressorNode: DynamicsCompressorNode | null = null;
-
-  constructor() {
-    this.setupUserGestureListener();
-  }
-
-  public setupUserGestureListener(): void {
-    if (this.gestureListenerAttached || typeof window === 'undefined') return;
-    this.gestureListenerAttached = true;
-
-    const unlock = () => {
-      const ctx = this.initCtx();
-      if (ctx && ctx.state === 'suspended') {
-        ctx
-          .resume()
-          .then(() => {
-            if (this.isMusicEnabled() && !this.isMusicPlaying) {
-              this.startMusic();
-            }
-          })
-          .catch(() => {});
-      } else if (this.isMusicEnabled() && !this.isMusicPlaying) {
-        this.startMusic();
-      }
-
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-      window.removeEventListener('touchstart', unlock);
-    };
-
-    window.addEventListener('pointerdown', unlock, { passive: true, once: true });
-    window.addEventListener('keydown', unlock, { passive: true, once: true });
-    window.addEventListener('touchstart', unlock, { passive: true, once: true });
-  }
-
-  private initAudioNodes(): void {
-    if (!this.ctx) return;
-    if (this.masterGainNode && this.sfxGainNode && this.musicGainNode && this.compressorNode) {
-      return;
-    }
-
-    try {
-      // 1. DynamicsCompressorNode: Soft-knee limiter preventing digital clipping/distortion when volume is boosted ~4x
-      this.compressorNode = this.ctx.createDynamicsCompressor();
-      this.compressorNode.threshold.setValueAtTime(-3, this.ctx.currentTime);
-      this.compressorNode.knee.setValueAtTime(8, this.ctx.currentTime);
-      this.compressorNode.ratio.setValueAtTime(6, this.ctx.currentTime);
-      this.compressorNode.attack.setValueAtTime(0.003, this.ctx.currentTime);
-      this.compressorNode.release.setValueAtTime(0.12, this.ctx.currentTime);
-      this.compressorNode.connect(this.ctx.destination);
-
-      // 2. Master Gain Node: Applies master game volume multiplied by gain boost (~3.8x, target max ~400%)
-      this.masterGainNode = this.ctx.createGain();
-      this.masterGainNode.connect(this.compressorNode);
-
-      // 3. SFX Gain Node: Dedicated channel for SFX
-      this.sfxGainNode = this.ctx.createGain();
-      this.sfxGainNode.connect(this.masterGainNode);
-
-      // 4. Music Gain Node: Dedicated channel for procedural BGM
-      this.musicGainNode = this.ctx.createGain();
-      this.musicGainNode.connect(this.masterGainNode);
-
-      this.updateGainLevels();
-    } catch {
-      // Fallback gracefully
-    }
-  }
-
-  public updateGainLevels(): void {
-    if (!this.ctx) return;
-    const settings = storage.getData().settings;
-    const master = (settings.masterVolume ?? 80) / 100;
-    const sfx = (settings.sfxVolume ?? 80) / 100;
-    const music = (settings.musicVolume ?? 70) / 100;
-
-    const now = this.ctx.currentTime;
-    if (this.masterGainNode) {
-      const targetMaster = master * SoundSystem.MASTER_GAIN_BOOST;
-      this.masterGainNode.gain.setValueAtTime(targetMaster, now);
-    }
-    if (this.sfxGainNode) {
-      this.sfxGainNode.gain.setValueAtTime(sfx, now);
-    }
-    if (this.musicGainNode) {
-      this.musicGainNode.gain.setValueAtTime(music, now);
-    }
-  }
-
-  public getSfxDestination(): AudioNode {
-    const ctx = this.initCtx();
-    if (!this.sfxGainNode && ctx) {
-      this.initAudioNodes();
-    }
-    this.updateGainLevels();
-    return this.sfxGainNode || ctx?.destination || (ctx as AudioContext).destination;
-  }
-
-  public getMusicDestination(): AudioNode {
-    const ctx = this.initCtx();
-    if (!this.musicGainNode && ctx) {
-      this.initAudioNodes();
-    }
-    this.updateGainLevels();
-    return this.musicGainNode || ctx?.destination || (ctx as AudioContext).destination;
-  }
 
   private initCtx(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -132,7 +17,6 @@ class SoundSystem {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioContextClass) {
         this.ctx = new AudioContextClass();
-        this.initAudioNodes();
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
@@ -150,19 +34,17 @@ class SoundSystem {
   }
 
   private getEffectiveSfxVolume(): number {
-    if (this.sfxGainNode) return 1.0;
     const settings = storage.getData().settings;
     const master = (settings.masterVolume ?? 80) / 100;
     const sfx = (settings.sfxVolume ?? 80) / 100;
-    return master * sfx * SoundSystem.MASTER_GAIN_BOOST;
+    return master * sfx;
   }
 
   private getEffectiveMusicVolume(): number {
-    if (this.musicGainNode) return 1.0;
     const settings = storage.getData().settings;
     const master = (settings.masterVolume ?? 80) / 100;
     const music = (settings.musicVolume ?? 70) / 100;
-    return master * music * SoundSystem.MASTER_GAIN_BOOST;
+    return master * music;
   }
 
   // --- Sound Effects ---
@@ -186,7 +68,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.15);
@@ -241,7 +123,7 @@ class SoundSystem {
       }
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + (type === 'MEMORY_SHARD' ? 0.38 : 0.3));
@@ -269,7 +151,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.2);
@@ -296,7 +178,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.12);
@@ -333,7 +215,7 @@ class SoundSystem {
 
       noise.connect(filter);
       filter.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       noise.start(now);
     } catch {
@@ -359,7 +241,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.45);
@@ -387,7 +269,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(now);
         osc.stop(now + 0.28);
@@ -416,7 +298,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(now);
         osc.stop(now + 0.22);
@@ -444,7 +326,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.05);
@@ -473,7 +355,7 @@ class SoundSystem {
       gain1.gain.setValueAtTime(vol, now);
       gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
       osc1.connect(gain1);
-      gain1.connect(this.getSfxDestination());
+      gain1.connect(ctx.destination);
       osc1.start(now);
       osc1.stop(now + 0.15);
 
@@ -486,7 +368,7 @@ class SoundSystem {
       gain2.gain.setValueAtTime(vol * 0.8, now + 0.18);
       gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
       osc2.connect(gain2);
-      gain2.connect(this.getSfxDestination());
+      gain2.connect(ctx.destination);
       osc2.start(now + 0.18);
       osc2.stop(now + 0.36);
     } catch {
@@ -524,7 +406,7 @@ class SoundSystem {
 
       noise.connect(filter);
       filter.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       noise.start(now);
     } catch {
@@ -556,7 +438,7 @@ class SoundSystem {
 
       osc.connect(filter);
       filter.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.52);
@@ -584,7 +466,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(t);
         osc.stop(t + 0.04);
@@ -613,7 +495,7 @@ class SoundSystem {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
 
       osc.connect(gain);
-      gain.connect(this.getSfxDestination());
+      gain.connect(ctx.destination);
 
       osc.start(now);
       osc.stop(now + 0.75);
@@ -644,7 +526,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(now);
         osc.stop(now + 0.32);
@@ -677,7 +559,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(now);
         osc.stop(now + 0.38);
@@ -706,7 +588,7 @@ class SoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
 
         osc.connect(gain);
-        gain.connect(this.getSfxDestination());
+        gain.connect(ctx.destination);
 
         osc.start(now);
         osc.stop(now + 0.5);
@@ -723,35 +605,9 @@ class SoundSystem {
   }
 
   public startMusic(): void {
-    if (!this.isMusicEnabled()) {
-      this.stopMusic();
-      return;
-    }
-
+    if (!this.isMusicEnabled() || this.isMusicPlaying) return;
     const ctx = this.initCtx();
     if (!ctx) return;
-
-    if (ctx.state === 'suspended') {
-      this.setupUserGestureListener();
-      ctx
-        .resume()
-        .then(() => {
-          if (this.isMusicEnabled() && (!this.isMusicPlaying || this.musicInterval === null)) {
-            this.startMusic();
-          }
-        })
-        .catch(() => {});
-      return;
-    }
-
-    if (this.isMusicPlaying && this.musicInterval !== null) {
-      return;
-    }
-
-    if (this.musicInterval !== null) {
-      clearInterval(this.musicInterval);
-      this.musicInterval = null;
-    }
 
     try {
       this.isMusicPlaying = true;
@@ -784,7 +640,7 @@ class SoundSystem {
             bassGain.gain.setValueAtTime(0.08 * musicVol, now);
             bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
             bassOsc.connect(bassGain);
-            bassGain.connect(this.getMusicDestination());
+            bassGain.connect(this.ctx.destination);
             bassOsc.start(now);
             bassOsc.stop(now + 0.3);
           }
@@ -798,7 +654,7 @@ class SoundSystem {
             pingGain.gain.setValueAtTime(0.02 * musicVol, now);
             pingGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
             pingOsc.connect(pingGain);
-            pingGain.connect(this.getMusicDestination());
+            pingGain.connect(this.ctx.destination);
             pingOsc.start(now);
             pingOsc.stop(now + 0.14);
           }
@@ -811,7 +667,7 @@ class SoundSystem {
           bassGain.gain.setValueAtTime(0.07 * musicVol, now);
           bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
           bassOsc.connect(bassGain);
-          bassGain.connect(this.getMusicDestination());
+          bassGain.connect(this.ctx.destination);
           bassOsc.start(now);
           bassOsc.stop(now + 0.15);
 
@@ -823,7 +679,7 @@ class SoundSystem {
           hatGain.gain.setValueAtTime(0.025 * musicVol, now);
           hatGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
           hatOsc.connect(hatGain);
-          hatGain.connect(this.getMusicDestination());
+          hatGain.connect(this.ctx.destination);
           hatOsc.start(now);
           hatOsc.stop(now + 0.035);
         } else {
@@ -835,7 +691,7 @@ class SoundSystem {
           bassGain.gain.setValueAtTime(0.06 * musicVol, now);
           bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
           bassOsc.connect(bassGain);
-          bassGain.connect(this.getMusicDestination());
+          bassGain.connect(this.ctx.destination);
           bassOsc.start(now);
           bassOsc.stop(now + 0.18);
 
@@ -847,7 +703,7 @@ class SoundSystem {
             hatGain.gain.setValueAtTime(0.02 * musicVol, now);
             hatGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
             hatOsc.connect(hatGain);
-            hatGain.connect(this.getMusicDestination());
+            hatGain.connect(this.ctx.destination);
             hatOsc.start(now);
             hatOsc.stop(now + 0.04);
           }
@@ -860,7 +716,7 @@ class SoundSystem {
             leadGain.gain.setValueAtTime(0.04 * musicVol, now);
             leadGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
             leadOsc.connect(leadGain);
-            leadGain.connect(this.getMusicDestination());
+            leadGain.connect(this.ctx.destination);
             leadOsc.start(now);
             leadOsc.stop(now + 0.32);
           }
@@ -886,34 +742,6 @@ class SoundSystem {
       this.startMusic();
     } else {
       this.stopMusic();
-    }
-  }
-
-  public handleVisibilityChange(isVisible: boolean): void {
-    if (!isVisible) {
-      // App backgrounded: Stop interval cleanly so it doesn't queue up
-      if (this.musicInterval !== null) {
-        clearInterval(this.musicInterval);
-        this.musicInterval = null;
-      }
-      this.isMusicPlaying = false;
-      if (this.ctx && this.ctx.state === 'running') {
-        this.ctx.suspend().catch(() => {});
-      }
-    } else {
-      // App foregrounded: Resume context and restart BGM if enabled
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx
-          .resume()
-          .then(() => {
-            if (this.isMusicEnabled()) {
-              this.startMusic();
-            }
-          })
-          .catch(() => {});
-      } else if (this.isMusicEnabled()) {
-        this.startMusic();
-      }
     }
   }
 }

@@ -13,7 +13,6 @@ interface HUDProps {
   isLookBackAvailable?: boolean;
   onLookBack?: () => void;
   isPaused: boolean;
-  isPortrait?: boolean;
   soundEnabled: boolean;
   musicEnabled: boolean;
   showTutorialHint: boolean;
@@ -30,8 +29,6 @@ export const HUD: React.FC<HUDProps> = ({
   distance = 0,
   isLookBackAvailable = false,
   onLookBack,
-  isPaused,
-  isPortrait = false,
   soundEnabled,
   musicEnabled,
   showTutorialHint,
@@ -44,11 +41,7 @@ export const HUD: React.FC<HUDProps> = ({
   return (
     <div
       id="game-hud"
-      className={`absolute inset-0 pointer-events-none flex flex-col justify-between select-none p-3 sm:p-4 md:p-6 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] ${
-        isPortrait
-          ? 'pb-[max(4.75rem,calc(env(safe-area-inset-bottom,0px)+4rem))]'
-          : 'pb-[max(1.5rem,calc(env(safe-area-inset-bottom,0px)+1rem))]'
-      } portrait:pb-[max(4.75rem,calc(env(safe-area-inset-bottom,0px)+4rem))] landscape:pb-[max(1.5rem,calc(env(safe-area-inset-bottom,0px)+1rem))]`}
+      className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-4 md:p-6 select-none pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]"
     >
       {/* Top Header Bar */}
       <div className="flex items-start justify-between w-full gap-2">
@@ -167,11 +160,7 @@ export const HUD: React.FC<HUDProps> = ({
       </div>
 
       {/* Bottom Area: Look Back Mechanic Button & Tutorial */}
-      <div
-        className={`flex flex-col items-center gap-2.5 w-full pointer-events-none ${
-          isPortrait ? 'mb-2 sm:mb-3' : 'mb-1 sm:mb-1.5'
-        } portrait:mb-2 landscape:mb-1`}
-      >
+      <div className="flex flex-col items-center gap-3 mb-2 w-full pointer-events-none">
         {/* Brief Natural Tutorial Hint */}
         {showTutorialHint && (
           <div className="flex flex-col items-center animate-bounce duration-700 pointer-events-none mb-1">
@@ -186,7 +175,7 @@ export const HUD: React.FC<HUDProps> = ({
 
         {/* Look Back Action Trigger - Ergonomic for Mobile Thumb & Desktop Keys */}
         {onLookBack && (
-          <div className="pointer-events-auto flex items-center justify-between w-full max-w-md px-3 sm:px-2 pb-1">
+          <div className="pointer-events-auto flex items-center justify-between w-full max-w-md px-2">
             {/* Dedicated Android/Touch Thumb Button */}
             <button
               id="btn-look-back"
@@ -200,10 +189,10 @@ export const HUD: React.FC<HUDProps> = ({
                 sound.playClick();
                 onLookBack();
               }}
-              className={`flex items-center justify-center gap-2.5 px-5 sm:px-6 py-3.5 sm:py-3 rounded-2xl border text-xs sm:text-sm font-mono font-bold tracking-wider uppercase transition-all duration-200 active:scale-95 select-none shadow-2xl cursor-pointer min-h-[52px] sm:min-h-[48px] touch-manipulation ${
+              className={`flex items-center justify-center gap-2.5 px-5 py-3 rounded-2xl border text-xs sm:text-sm font-mono font-bold tracking-wider uppercase transition-all duration-200 active:scale-90 select-none shadow-xl cursor-pointer min-h-[48px] ${
                 isLookBackAvailable
-                  ? 'bg-red-950/95 hover:bg-red-900 border-red-500 text-red-100 shadow-[0_0_24px_rgba(239,68,68,0.6)] animate-pulse ring-2 ring-red-500/40'
-                  : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-200 hover:text-white shadow-black/60'
+                  ? 'bg-red-950/90 hover:bg-red-900 border-red-500 text-red-200 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
+                  : 'bg-slate-900/85 hover:bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
               }`}
               title={lang === 'id' ? 'Tengok ke Belakang (Q / B)' : 'Look Behind (Q / B)'}
             >
