@@ -108,6 +108,12 @@ export interface Achievement {
   maxProgress?: number;
 }
 
+export interface PlayerIdentity {
+  playerId: string;
+  displayName: string;
+  isAuthenticated: boolean;
+}
+
 export interface LeaderboardEntry {
   id: string;
   score: number;
@@ -116,6 +122,7 @@ export interface LeaderboardEntry {
   coinsEarned: number;
   timestamp: number;
   skinUsed: SkinId;
+  player_id?: string;
   playerName?: string;
   display_name?: string;
   distance?: number;

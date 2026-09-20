@@ -1,10 +1,18 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { LeaderboardEntry } from '../types';
+import { LeaderboardEntry, PlayerIdentity } from '../types';
 import { storage } from './storage';
 import { securityService } from './security';
+import {
+  getPlayerIdentity,
+  getPlayerDisplayName,
+  setPlayerDisplayName,
+  setAuthenticatedUserId,
+  isCurrentPlayer,
+} from './identity';
 
 export interface OnlineLeaderboardEntry {
   id: string;
+  player_id?: string | null;
   created_at?: string;
   display_name: string;
   score: number;
@@ -23,6 +31,7 @@ export interface ScoreSubmissionResult {
 
 export interface ILeaderboardService {
   isOnline(): boolean;
+  getIdentity(): PlayerIdentity;
   getPlayerName(): string;
   setPlayerName(name: string): string;
   getTopScores(limit?: number): Promise<LeaderboardEntry[]>;
@@ -36,37 +45,21 @@ export interface ILeaderboardService {
   ): Promise<ScoreSubmissionResult>;
 }
 
-const PLAYER_NAME_KEY = 'dont_blink_player_name';
+// Re-export identity utilities for backward compatibility & centralized access
+export {
+  getPlayerIdentity,
+  getPlayerDisplayName,
+  setPlayerDisplayName,
+  isCurrentPlayer,
+};
+
+export const getStoredPlayerName = getPlayerDisplayName;
+export const setStoredPlayerName = setPlayerDisplayName;
 
 const DEFAULT_SUPABASE_URL = 'https://nqzonmdosoxdgdezngwp.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY =
   (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_ANON_KEY) ||
   'sb_publishable_hHnY4C3RetDPcMk_6v8QsA_uqVBrL1R';
-
-export function getStoredPlayerName(): string {
-  if (typeof window === 'undefined') return 'Runner';
-  try {
-    const saved = localStorage.getItem(PLAYER_NAME_KEY);
-    if (saved) {
-      return securityService.sanitizePlayerName(saved);
-    }
-  } catch {
-    // Graceful fallback
-  }
-  return 'Runner';
-}
-
-export function setStoredPlayerName(name: string): string {
-  const sanitized = securityService.sanitizePlayerName(name);
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(PLAYER_NAME_KEY, sanitized);
-    } catch {
-      // Graceful fallback
-    }
-  }
-  return sanitized;
-}
 
 export class SupabaseLeaderboardService implements ILeaderboardService {
   private client: SupabaseClient | null = null;
@@ -89,9 +82,23 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
       try {
         this.client = createClient(this.url, this.anonKey.trim(), {
           auth: {
-            persistSession: false,
-            autoRefreshToken: false,
+            persistSession: true,
+            autoRefreshToken: true,
           },
+        });
+
+        // Sync authenticated user identity if session exists
+        this.client.auth
+          .getSession()
+          .then(({ data: { session } }) => {
+            if (session?.user?.id) {
+              setAuthenticatedUserId(session.user.id);
+            }
+          })
+          .catch(() => {});
+
+        this.client.auth.onAuthStateChange((_event, session) => {
+          setAuthenticatedUserId(session?.user?.id || null);
         });
       } catch (err) {
         // Deferred initialisation without crashing
@@ -104,12 +111,16 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     return !!(this.client && this.anonKey && this.anonKey.trim() !== '');
   }
 
+  public getIdentity(): PlayerIdentity {
+    return getPlayerIdentity();
+  }
+
   public getPlayerName(): string {
-    return getStoredPlayerName();
+    return getPlayerDisplayName();
   }
 
   public setPlayerName(name: string): string {
-    return setStoredPlayerName(name);
+    return setPlayerDisplayName(name);
   }
 
   public async getTopScores(limit = 50): Promise<LeaderboardEntry[]> {
@@ -124,15 +135,30 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     }
 
     try {
-      // ACTUAL Supabase schema columns: id, created_at, display_name, score
-      // Does NOT select non-existent columns (distance, run_duration, ending_id, skin_id) to eliminate HTTP 400
+      // 1. Primary query: Requests actual schema columns including player_id
       const { data, error } = await this.client
         .from('leaderboard')
-        .select('id, created_at, display_name, score')
+        .select('id, created_at, display_name, score, player_id')
         .order('score', { ascending: false })
         .limit(Math.min(100, Math.max(1, limit)));
 
       if (error) {
+        // 2. Adaptive fallback: If player_id column has not been added to remote DB yet (42703),
+        // fallback to base columns to eliminate HTTP 400 crashes completely
+        if (error.code === '42703' || error.message?.includes('player_id')) {
+          const fallback = await this.client
+            .from('leaderboard')
+            .select('id, created_at, display_name, score')
+            .order('score', { ascending: false })
+            .limit(Math.min(100, Math.max(1, limit)));
+
+          if (fallback.error) {
+            console.warn("DON'T BLINK: Leaderboard fallback query warning:", fallback.error.message);
+            return [];
+          }
+          return (fallback.data as OnlineLeaderboardEntry[]) || [];
+        }
+
         console.warn("DON'T BLINK: Leaderboard query warning:", error.message);
         return [];
       }
@@ -151,7 +177,8 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     customPlayerName?: string,
     runSessionId?: string
   ): Promise<ScoreSubmissionResult> {
-    const rawName = customPlayerName || this.getPlayerName();
+    const identity = getPlayerIdentity();
+    const rawName = customPlayerName || identity.displayName;
 
     // 1. Anti-Cheat & Physical Bounds Validation
     const validation = securityService.validateRunMetrics(
@@ -165,9 +192,10 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
       runSessionId
     );
 
-    // 2. Always record sanitized data in local storage
+    // 2. Always record sanitized data in local storage with player_id bound to the run
     const sanitizedEntry: LeaderboardEntry = {
       ...entry,
+      player_id: identity.playerId,
       score: validation.sanitizedScore,
       distance: validation.sanitizedDistance,
       durationSeconds: validation.sanitizedDuration,
@@ -217,14 +245,26 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     this.initClient();
     if (this.client) {
       try {
-        // ACTUAL Supabase schema payload: ONLY display_name and score
-        // Excludes distance, run_duration, ending_id, skin_id, run_session_id to match actual table schema
-        const payload = {
+        // Attempt insert with player_id included
+        const fullPayload = {
+          player_id: identity.playerId,
           display_name: validation.sanitizedPlayerName,
           score: validation.sanitizedScore,
         };
 
-        const { error } = await this.client.from('leaderboard').insert([payload]);
+        let { error } = await this.client.from('leaderboard').insert([fullPayload]);
+
+        // Adaptive fallback: if remote table does not have player_id column yet (42703),
+        // gracefully submit without player_id so user's score is never lost
+        if (error && (error.code === '42703' || error.message?.includes('player_id'))) {
+          const fallbackPayload = {
+            display_name: validation.sanitizedPlayerName,
+            score: validation.sanitizedScore,
+          };
+          const fallbackRes = await this.client.from('leaderboard').insert([fallbackPayload]);
+          error = fallbackRes.error;
+        }
+
         if (!error) {
           onlineSubmitted = true;
           securityService.recordOnlineSubmissionSuccess();

@@ -18,6 +18,8 @@ import { LeaderboardEntry } from '../types';
 import {
   leaderboardService,
   OnlineLeaderboardEntry,
+  getPlayerIdentity,
+  isCurrentPlayer,
 } from '../services/leaderboard';
 import { sound } from '../services/audio';
 import { i18n } from '../services/i18n';
@@ -32,9 +34,10 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
   const [localEntries, setLocalEntries] = useState<LeaderboardEntry[]>([]);
   const [globalEntries, setGlobalEntries] = useState<OnlineLeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [playerName, setPlayerName] = useState(leaderboardService.getPlayerName());
+  const [identity, setIdentity] = useState(getPlayerIdentity());
+  const [playerName, setPlayerName] = useState(identity.displayName);
   const [isEditingName, setIsEditingName] = useState(false);
-  const [tempName, setTempName] = useState(playerName);
+  const [tempName, setTempName] = useState(identity.displayName);
   const isOnline = leaderboardService.isOnline();
 
   const loadScores = useCallback(async () => {
@@ -61,6 +64,8 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
     e.preventDefault();
     sound.playClick();
     const clean = leaderboardService.setPlayerName(tempName);
+    const updated = getPlayerIdentity();
+    setIdentity(updated);
     setPlayerName(clean);
     setTempName(clean);
     setIsEditingName(false);
@@ -151,10 +156,16 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
             </form>
           ) : (
             <>
-              <div className="flex items-center gap-2 text-xs font-mono">
+              <div className="flex items-center gap-2 text-xs font-mono flex-wrap">
                 <User className="w-4 h-4 text-cyan-400" />
                 <span className="text-slate-400">{lang === 'id' ? 'Nama Pelari:' : 'Callsign:'}</span>
                 <span className="text-white font-bold tracking-wide">{playerName}</span>
+                <span
+                  className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 tracking-wider"
+                  title={`Player ID: ${identity.playerId}`}
+                >
+                  {identity.isAuthenticated ? 'AUTH' : 'ID'} #{identity.playerId.slice(-4)}
+                </span>
               </div>
               <button
                 type="button"
@@ -163,7 +174,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                   setTempName(playerName);
                   setIsEditingName(true);
                 }}
-                className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-500/30"
+                className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer px-2 py-0.5 rounded bg-cyan-950/40 border border-cyan-500/30 shrink-0"
               >
                 <Edit2 className="w-3 h-3" />
                 <span>{lang === 'id' ? 'Ubah' : 'Change'}</span>
@@ -226,8 +237,11 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
             ) : (
               globalEntries.map((entry, idx) => {
                 const rank = idx + 1;
-                const isCurrentPlayer =
-                  (entry.display_name || '').toLowerCase() === playerName.toLowerCase();
+                // STUBBORN IDENTITY RULE: Player ID is the only identifier, NEVER match solely on display_name.
+                // Legacy entries without player_id are unowned/legacy records.
+                const isCurrentPlayerRecord = entry.player_id
+                  ? isCurrentPlayer(entry.player_id)
+                  : false;
 
                 return (
                   <div
@@ -236,7 +250,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                     className={`p-3 rounded-2xl border flex items-center justify-between transition-all ${
                       rank === 1
                         ? 'bg-gradient-to-r from-amber-500/20 via-slate-900 to-slate-900 border-amber-500/50 shadow-md'
-                        : isCurrentPlayer
+                        : isCurrentPlayerRecord
                         ? 'bg-cyan-950/40 border-cyan-500/50'
                         : 'bg-slate-950/60 border-slate-850'
                     }`}
@@ -260,12 +274,12 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ onClose }) =
                         <div className="flex items-center gap-2">
                           <span
                             className={`text-sm sm:text-base font-extrabold font-['Chakra_Petch'] tracking-wide ${
-                              isCurrentPlayer ? 'text-cyan-300' : 'text-white'
+                              isCurrentPlayerRecord ? 'text-cyan-300' : 'text-white'
                             }`}
                           >
                             {entry.display_name || 'Anonymous Runner'}
                           </span>
-                          {isCurrentPlayer && (
+                          {isCurrentPlayerRecord && (
                             <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
                               YOU
                             </span>
