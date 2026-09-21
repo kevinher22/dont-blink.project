@@ -5,6 +5,8 @@ import {
   Particle,
   FloatingText,
   SkinId,
+  EntitySkinId,
+  OrbCosmeticId,
   CollectibleType,
   ObstacleType,
 } from '../types';
@@ -16,6 +18,7 @@ import { storage } from '../services/storage';
 import { securityService, RunSession } from '../services/security';
 import { drawRoundRect } from '../utils/canvasHelper';
 import { renderConsistentEntity } from './entityVisuals';
+import { renderOrbArtefact } from './orbRenderer';
 
 export type EntityEncounterType =
   | 'A_DISTANT_SILHOUETTE'
@@ -78,6 +81,9 @@ export class GameEngine {
   // Game State
   private state: GameState = 'MENU';
   private skinId: SkinId = 'default';
+  private entitySkinId: EntitySkinId = 'entity_original';
+  private orbCosmeticId: OrbCosmeticId = 'orb_default';
+  private invulnerableTimer: number = 0;
   private runDuration: number = 0;
   private score: number = 0;
   private coinsEarnedThisRun: number = 0;
@@ -144,6 +150,41 @@ export class GameEngine {
 
   public setSkin(skin: SkinId): void {
     this.skinId = skin;
+  }
+
+  public setEntitySkin(skin: EntitySkinId): void {
+    this.entitySkinId = skin;
+  }
+
+  public setOrbCosmetic(orb: OrbCosmeticId): void {
+    this.orbCosmeticId = orb;
+  }
+
+  public revivePlayer(): void {
+    this.state = 'PLAYING';
+    this.characterAction = 'run';
+    this.playerY = GAME_CONSTANTS.GROUND_Y;
+    this.playerVy = 0;
+    this.isGrounded = true;
+    this.invulnerableTimer = 3.2; // 3.2 seconds invulnerability barrier
+    // Clear any obstacles within 320px in front of the player
+    this.obstacles = this.obstacles.filter((o) => o.x > GAME_CONSTANTS.PLAYER_X + 280);
+    for (let i = 0; i < 20; i++) {
+      const angle = (Math.PI * 2 * i) / 20;
+      const spd = 2 + Math.random() * 3;
+      this.particles.push({
+        x: GAME_CONSTANTS.PLAYER_X + 18,
+        y: this.playerY - 20,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd,
+        color: '#38bdf8',
+        size: 3 + Math.random() * 3,
+        alpha: 1,
+        life: 0,
+        maxLife: 28,
+      });
+    }
+    this.addFloatingText('REVIVED!', GAME_CONSTANTS.PLAYER_X + 18, this.playerY - 45, '#38bdf8', 16);
   }
 
   public setReducedMotion(reduced: boolean): void {
@@ -618,6 +659,9 @@ export class GameEngine {
       }
 
       this.runDuration += effectiveDt;
+      if (this.invulnerableTimer > 0) {
+        this.invulnerableTimer -= effectiveDt;
+      }
 
       // 1. Difficulty & Speed Scaling
       this.currentSpeed = Math.min(
@@ -989,6 +1033,9 @@ export class GameEngine {
         py + ph > obs.y;
 
       if (collides) {
+        if (this.invulnerableTimer > 0) {
+          continue;
+        }
         this.triggerGameOver();
         return;
       }
@@ -1299,6 +1346,18 @@ export class GameEngine {
     this.drawParticles();
 
     // 8. Player Character
+    if (this.invulnerableTimer > 0) {
+      this.ctx.save();
+      this.ctx.strokeStyle = `rgba(56, 189, 248, ${0.5 + Math.sin(this.animClock * 20) * 0.4})`;
+      this.ctx.lineWidth = 2.5;
+      this.ctx.shadowColor = '#38bdf8';
+      this.ctx.shadowBlur = 12;
+      this.ctx.beginPath();
+      this.ctx.arc(GAME_CONSTANTS.PLAYER_X + 18, this.playerY - 10, 32, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
+
     renderCharacter(
       this.ctx,
       GAME_CONSTANTS.PLAYER_X,
@@ -1388,6 +1447,7 @@ export class GameEngine {
       facingRight: enc.facingRight,
       eyeGlowIntensity: enc.eyeGlowIntensity,
       showRedAura: enc.showRedAura,
+      entitySkinId: this.entitySkinId,
     });
   }
 
@@ -1534,15 +1594,19 @@ export class GameEngine {
         this.ctx.lineWidth = 2;
         this.ctx.stroke();
       } else {
-        this.ctx.fillStyle = color;
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, col.type === 'RARE' ? 9 : 7, 0, Math.PI * 2);
-        this.ctx.fill();
+        if (this.orbCosmeticId && this.orbCosmeticId !== 'orb_default') {
+          renderOrbArtefact(this.ctx, 0, 0, this.orbCosmeticId, this.animClock, 0.75);
+        } else {
+          this.ctx.fillStyle = color;
+          this.ctx.beginPath();
+          this.ctx.arc(0, 0, col.type === 'RARE' ? 9 : 7, 0, Math.PI * 2);
+          this.ctx.fill();
 
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.beginPath();
-        this.ctx.arc(-2, -2, 2.5, 0, Math.PI * 2);
-        this.ctx.fill();
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.beginPath();
+          this.ctx.arc(-2, -2, 2.5, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
       }
 
       this.ctx.restore();

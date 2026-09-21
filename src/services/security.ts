@@ -4,7 +4,38 @@
 
 import { SkinId, LeaderboardEntry, GameSaveData } from '../types';
 
-const VALID_SKINS: readonly SkinId[] = ['default', 'neon', 'robot', 'ghost', 'pixel', 'golden'];
+const VALID_SKINS: readonly SkinId[] = [
+  'default',
+  'neon',
+  'robot',
+  'ghost',
+  'pixel',
+  'golden',
+  'the_original',
+  'night_runner',
+  'last_survivor',
+  'chrome_runner',
+  'null_skin',
+  'artificial_angel',
+  'fracture',
+  'iron_witness',
+  'memory_keeper',
+  'void_pilgrim',
+  'the_mirror',
+  'beyond_the_blink',
+  'ash_runner',
+  'white_noise',
+  'redacted',
+  'clockwork',
+  'deep_sea',
+  'red_shift',
+  'the_archivist',
+  'broken_halo',
+  'the_drifter',
+  'static_skin',
+  'the_last_memory',
+  'paradox',
+];
 const VALID_ENDINGS = new Set([
   'ending_01',
   'ending_02',

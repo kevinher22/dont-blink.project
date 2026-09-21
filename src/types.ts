@@ -14,7 +14,94 @@ export type GameState =
   | 'ENDING_CINEMATIC'
   | 'CREDITS';
 
-export type SkinId = 'default' | 'neon' | 'robot' | 'ghost' | 'pixel' | 'golden';
+export type SkinId =
+  | 'default'
+  | 'neon'
+  | 'robot'
+  | 'ghost'
+  | 'pixel'
+  | 'golden'
+  | 'the_original'
+  | 'night_runner'
+  | 'last_survivor'
+  | 'chrome_runner'
+  | 'null_skin'
+  | 'artificial_angel'
+  | 'fracture'
+  | 'iron_witness'
+  | 'memory_keeper'
+  | 'void_pilgrim'
+  | 'the_mirror'
+  | 'beyond_the_blink'
+  | 'ash_runner'
+  | 'white_noise'
+  | 'redacted'
+  | 'clockwork'
+  | 'deep_sea'
+  | 'red_shift'
+  | 'the_archivist'
+  | 'broken_halo'
+  | 'the_drifter'
+  | 'static_skin'
+  | 'the_last_memory'
+  | 'paradox'
+  | 'rust_nomad'
+  | 'cyber_courier'
+  | 'void_diver'
+  | 'glitch_weaver'
+  | 'aegis_vanguard'
+  | 'solar_nomad'
+  | 'chrono_detective'
+  | 'phantom_ronin'
+  | 'neon_aristocrat'
+  | 'astral_sovereign';
+
+export type EntitySkinId =
+  | 'entity_original'
+  | 'entity_machine'
+  | 'entity_artificial_angel'
+  | 'entity_fractured'
+  | 'entity_hollow'
+  | 'entity_watcher'
+  | 'entity_old_one'
+  | 'entity_origin'
+  | 'entity_ashen'
+  | 'entity_white_signal'
+  | 'entity_archive'
+  | 'entity_red_shift'
+  | 'entity_drowned'
+  | 'entity_clock'
+  | 'entity_redacted'
+  | 'entity_paradox'
+  | 'entity_cryo_phantom'
+  | 'entity_neon_parasite'
+  | 'entity_chitin_colossus'
+  | 'entity_prismatic_shard'
+  | 'entity_iron_bell'
+  | 'entity_ocular_swarm'
+  | 'entity_wire_weaver'
+  | 'entity_solar_seraph';
+
+export type OrbCosmeticId =
+  | 'orb_default'
+  | 'orb_heart_of_null'
+  | 'orb_broken_clock'
+  | 'orb_white_signal'
+  | 'orb_red_shift_core'
+  | 'orb_angelic_failure'
+  | 'orb_memory_glass'
+  | 'orb_static_heart'
+  | 'orb_paradox_seed';
+
+export interface PurchaseRecord {
+  transaction_id: string;
+  product_id: string;
+  player_id: string;
+  platform: string;
+  purchased_at: number;
+  verification_status: 'verified' | 'pending' | 'mock_verified';
+  priceDisplay?: string;
+}
 
 export interface Skin {
   id: SkinId;
@@ -223,6 +310,14 @@ export interface GameSaveData {
   coins: number;
   selectedSkin: SkinId;
   unlockedSkins: SkinId[];
+  selectedEntitySkin?: EntitySkinId;
+  unlockedEntitySkins?: EntitySkinId[];
+  selectedOrbCosmetic?: OrbCosmeticId;
+  unlockedOrbCosmetics?: OrbCosmeticId[];
+  purchasedBundles?: string[];
+  fullStoryUnlocked?: boolean;
+  supporterPackUnlocked?: boolean;
+  purchaseHistory?: PurchaseRecord[];
   achievements: Record<string, { unlocked: boolean; unlockedAt?: number }>;
   dailyChallenge: {
     dateKey: string;

@@ -1,4 +1,15 @@
-import { GameSaveData, SkinId, UserSettings, LeaderboardEntry, DailyChallenge, StoryState, EndingId } from '../types';
+import {
+  GameSaveData,
+  SkinId,
+  EntitySkinId,
+  OrbCosmeticId,
+  PurchaseRecord,
+  UserSettings,
+  LeaderboardEntry,
+  DailyChallenge,
+  StoryState,
+  EndingId,
+} from '../types';
 import { GAME_CONSTANTS } from '../game/constants';
 import { securityService } from './security';
 
@@ -40,6 +51,14 @@ const DEFAULT_SAVE_DATA: GameSaveData = {
   coins: 0,
   selectedSkin: 'default',
   unlockedSkins: ['default'],
+  selectedEntitySkin: 'entity_original',
+  unlockedEntitySkins: ['entity_original'],
+  selectedOrbCosmetic: 'orb_default',
+  unlockedOrbCosmetics: ['orb_default'],
+  purchasedBundles: [],
+  fullStoryUnlocked: false,
+  supporterPackUnlocked: false,
+  purchaseHistory: [],
   achievements: {},
   dailyChallenge: {
     dateKey: '',
@@ -197,11 +216,112 @@ class DataManager {
     return false;
   }
 
+  public unlockSkinFree(skinId: SkinId): boolean {
+    if (!this.inMemoryCache.unlockedSkins.includes(skinId)) {
+      this.inMemoryCache.unlockedSkins.push(skinId);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
   public selectSkin(skinId: SkinId): void {
     if (this.inMemoryCache.unlockedSkins.includes(skinId)) {
       this.inMemoryCache.selectedSkin = skinId;
       this.save();
     }
+  }
+
+  // --- ENTITY SKINS ---
+
+  public unlockEntitySkin(id: EntitySkinId, cost: number): boolean {
+    const list = this.inMemoryCache.unlockedEntitySkins || ['entity_original'];
+    if (this.inMemoryCache.coins >= cost && !list.includes(id)) {
+      this.inMemoryCache.coins -= cost;
+      list.push(id);
+      this.inMemoryCache.unlockedEntitySkins = list;
+      this.inMemoryCache.selectedEntitySkin = id;
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public unlockEntitySkinFree(id: EntitySkinId): boolean {
+    const list = this.inMemoryCache.unlockedEntitySkins || ['entity_original'];
+    if (!list.includes(id)) {
+      list.push(id);
+      this.inMemoryCache.unlockedEntitySkins = list;
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public selectEntitySkin(id: EntitySkinId): void {
+    const list = this.inMemoryCache.unlockedEntitySkins || ['entity_original'];
+    if (list.includes(id)) {
+      this.inMemoryCache.selectedEntitySkin = id;
+      this.save();
+    }
+  }
+
+  // --- ORB COSMETICS ---
+
+  public unlockOrbCosmetic(id: OrbCosmeticId): boolean {
+    const list = this.inMemoryCache.unlockedOrbCosmetics || ['orb_default'];
+    if (!list.includes(id)) {
+      list.push(id);
+      this.inMemoryCache.unlockedOrbCosmetics = list;
+      this.inMemoryCache.selectedOrbCosmetic = id;
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  public selectOrbCosmetic(id: OrbCosmeticId): void {
+    const list = this.inMemoryCache.unlockedOrbCosmetics || ['orb_default'];
+    if (list.includes(id)) {
+      this.inMemoryCache.selectedOrbCosmetic = id;
+      this.save();
+    }
+  }
+
+  // --- BUNDLES & PASSES ---
+
+  public addPurchasedBundle(bundleId: string): void {
+    const list = this.inMemoryCache.purchasedBundles || [];
+    if (!list.includes(bundleId)) {
+      list.push(bundleId);
+      this.inMemoryCache.purchasedBundles = list;
+      this.save();
+    }
+  }
+
+  public setFullStoryUnlocked(unlocked: boolean = true): void {
+    this.inMemoryCache.fullStoryUnlocked = unlocked;
+    // Also ensure all chapters in story state are accessible
+    const allChapters = ['chapter_1', 'chapter_2', 'chapter_3', 'chapter_4', 'chapter_5', 'chapter_6'];
+    this.inMemoryCache.story.unlockedChapters = Array.from(new Set([...this.inMemoryCache.story.unlockedChapters, ...allChapters]));
+    this.save();
+  }
+
+  public setSupporterPackUnlocked(unlocked: boolean = true): void {
+    this.inMemoryCache.supporterPackUnlocked = unlocked;
+    this.save();
+  }
+
+  public recordPurchase(record: PurchaseRecord): void {
+    const history = this.inMemoryCache.purchaseHistory || [];
+    history.push(record);
+    this.inMemoryCache.purchaseHistory = history;
+    this.save();
+  }
+
+  public removeAds(): void {
+    this.inMemoryCache.adsRemoved = true;
+    this.save();
   }
 
   public updateSettings(partial: Partial<UserSettings>): UserSettings {

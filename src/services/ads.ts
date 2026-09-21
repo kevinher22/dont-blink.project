@@ -40,8 +40,10 @@ class AdService implements IAdService {
   }
 
   public async isAdAvailable(placement: AdPlacement): Promise<boolean> {
-    if (this.isAdsRemoved()) return false;
-    // Both rewarded and interstitial slots are ready for network mediation
+    if (placement === 'game_over_interstitial') {
+      return !this.isAdsRemoved();
+    }
+    // Rewarded revives and bonus coin opportunities remain available even if Remove Ads is purchased
     return true;
   }
 
@@ -64,6 +66,14 @@ class AdService implements IAdService {
     onClose?: () => void
   ): Promise<boolean> {
     if (this.adRunning) return false;
+
+    // If Remove Ads is purchased, award the reward instantly without ad delay!
+    if (this.isAdsRemoved()) {
+      analytics.logEvent('ad_rewarded_instant_vip', { placement });
+      onReward();
+      onClose?.();
+      return true;
+    }
 
     this.adRunning = true;
     analytics.logEvent('ad_rewarded_requested', { placement });

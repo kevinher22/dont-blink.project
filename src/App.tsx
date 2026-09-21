@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GameState, SkinId, UserSettings, DailyChallenge, GameEnding } from './types';
+import { GameState, SkinId, EntitySkinId, OrbCosmeticId, UserSettings, DailyChallenge, GameEnding } from './types';
 import { GameEngine } from './game/engine';
 import { storage } from './services/storage';
 import { sound } from './services/audio';
@@ -42,6 +42,15 @@ export default function App() {
   const [totalCoins, setTotalCoins] = useState<number>(() => storage.getData().coins);
   const [selectedSkin, setSelectedSkin] = useState<SkinId>(() => storage.getData().selectedSkin);
   const [unlockedSkins, setUnlockedSkins] = useState<SkinId[]>(() => storage.getData().unlockedSkins);
+  const [selectedEntitySkin, setSelectedEntitySkin] = useState<EntitySkinId>(() => storage.getData().selectedEntitySkin || 'entity_original');
+  const [unlockedEntitySkins, setUnlockedEntitySkins] = useState<EntitySkinId[]>(() => storage.getData().unlockedEntitySkins || ['entity_original']);
+  const [selectedOrbCosmetic, setSelectedOrbCosmetic] = useState<OrbCosmeticId>(() => storage.getData().selectedOrbCosmetic || 'orb_default');
+  const [unlockedOrbCosmetics, setUnlockedOrbCosmetics] = useState<OrbCosmeticId[]>(() => storage.getData().unlockedOrbCosmetics || ['orb_default']);
+  const [purchasedBundles, setPurchasedBundles] = useState<string[]>(() => storage.getData().purchasedBundles || []);
+  const [adsRemoved, setAdsRemoved] = useState<boolean>(() => !!storage.getData().adsRemoved);
+  const [fullStoryUnlocked, setFullStoryUnlocked] = useState<boolean>(() => !!storage.getData().fullStoryUnlocked);
+  const [supporterPackUnlocked, setSupporterPackUnlocked] = useState<boolean>(() => !!storage.getData().supporterPackUnlocked);
+  const [hasRevivedThisRun, setHasRevivedThisRun] = useState<boolean>(false);
   const [settings, setSettings] = useState<UserSettings>(() => storage.getData().settings);
   const [achievementsMap, setAchievementsMap] = useState<
     Record<string, { unlocked: boolean; unlockedAt?: number }>
@@ -117,6 +126,14 @@ export default function App() {
     setTotalCoins(data.coins);
     setSelectedSkin(data.selectedSkin);
     setUnlockedSkins(data.unlockedSkins);
+    setSelectedEntitySkin(data.selectedEntitySkin || 'entity_original');
+    setUnlockedEntitySkins(data.unlockedEntitySkins || ['entity_original']);
+    setSelectedOrbCosmetic(data.selectedOrbCosmetic || 'orb_default');
+    setUnlockedOrbCosmetics(data.unlockedOrbCosmetics || ['orb_default']);
+    setPurchasedBundles(data.purchasedBundles || []);
+    setAdsRemoved(!!data.adsRemoved);
+    setFullStoryUnlocked(!!data.fullStoryUnlocked);
+    setSupporterPackUnlocked(!!data.supporterPackUnlocked);
     setSettings(data.settings);
     setAchievementsMap(data.achievements);
     setDailyChallenge(storage.getDailyChallenge(todayKey));
@@ -381,6 +398,8 @@ export default function App() {
 
     engine.setPersonalBest(storage.getData().bestScore);
     engine.setSkin(storage.getData().selectedSkin);
+    engine.setEntitySkin(storage.getData().selectedEntitySkin || 'entity_original');
+    engine.setOrbCosmetic(storage.getData().selectedOrbCosmetic || 'orb_default');
     engine.setReducedMotion(storage.getData().settings.reducedMotion);
     engineRef.current = engine;
 
@@ -470,10 +489,12 @@ export default function App() {
   useEffect(() => {
     if (engineRef.current) {
       engineRef.current.setSkin(selectedSkin);
+      engineRef.current.setEntitySkin(selectedEntitySkin);
+      engineRef.current.setOrbCosmetic(selectedOrbCosmetic);
       engineRef.current.setPersonalBest(bestScore);
       engineRef.current.setReducedMotion(settings.reducedMotion);
     }
-  }, [selectedSkin, bestScore, settings.reducedMotion]);
+  }, [selectedSkin, selectedEntitySkin, selectedOrbCosmetic, bestScore, settings.reducedMotion]);
 
   // Start a new run
   const handleStartGame = useCallback(() => {
@@ -484,6 +505,7 @@ export default function App() {
     setCurrentDistance(0);
     setCoinsEarnedRun(0);
     setIsLookBackAvailable(false);
+    setHasRevivedThisRun(false);
     setGameState('PLAYING');
 
     // Show tutorial hint for 3.2 seconds
@@ -496,11 +518,13 @@ export default function App() {
     if (engineRef.current) {
       engineRef.current.setPersonalBest(storage.getData().bestScore);
       engineRef.current.setSkin(selectedSkin);
+      engineRef.current.setEntitySkin(selectedEntitySkin);
+      engineRef.current.setOrbCosmetic(selectedOrbCosmetic);
       engineRef.current.start();
     }
 
     analytics.logEvent('game_started');
-  }, [selectedSkin]);
+  }, [selectedSkin, selectedEntitySkin, selectedOrbCosmetic]);
 
   // Look Back Mechanic Action
   const handleTriggerLookBack = useCallback(() => {
@@ -593,9 +617,22 @@ export default function App() {
   const handleSelectSkin = useCallback((id: SkinId) => {
     storage.selectSkin(id);
     setSelectedSkin(id);
+    engineRef.current?.setSkin(id);
   }, []);
 
-  const handleBuySkin = useCallback(
+  const handleSelectEntitySkin = useCallback((id: EntitySkinId) => {
+    storage.selectEntitySkin(id);
+    setSelectedEntitySkin(id);
+    engineRef.current?.setEntitySkin(id);
+  }, []);
+
+  const handleSelectOrbCosmetic = useCallback((id: OrbCosmeticId) => {
+    storage.selectOrbCosmetic(id);
+    setSelectedOrbCosmetic(id);
+    engineRef.current?.setOrbCosmetic(id);
+  }, []);
+
+  const handleBuySkinWithOrbs = useCallback(
     (id: SkinId, cost: number) => {
       const success = storage.unlockSkin(id, cost);
       if (success) {
@@ -608,6 +645,43 @@ export default function App() {
     },
     [unlockAchievement]
   );
+
+  const handleBuyEntitySkinWithOrbs = useCallback((id: EntitySkinId, cost: number) => {
+    const success = storage.unlockEntitySkin(id, cost);
+    if (success) {
+      setSelectedEntitySkin(id);
+      setUnlockedEntitySkins([...(storage.getData().unlockedEntitySkins || [])]);
+      setTotalCoins(storage.getData().coins);
+      analytics.logEvent('entity_skin_unlocked', { skin_id: id });
+    }
+  }, []);
+
+  const handlePurchaseSuccess = useCallback(() => {
+    const data = storage.getData();
+    setSelectedSkin(data.selectedSkin);
+    setUnlockedSkins([...data.unlockedSkins]);
+    setSelectedEntitySkin(data.selectedEntitySkin || 'entity_original');
+    setUnlockedEntitySkins([...(data.unlockedEntitySkins || ['entity_original'])]);
+    setSelectedOrbCosmetic(data.selectedOrbCosmetic || 'orb_default');
+    setUnlockedOrbCosmetics([...(data.unlockedOrbCosmetics || ['orb_default'])]);
+    setPurchasedBundles([...(data.purchasedBundles || [])]);
+    setAdsRemoved(!!data.adsRemoved);
+    setFullStoryUnlocked(!!data.fullStoryUnlocked);
+    setSupporterPackUnlocked(!!data.supporterPackUnlocked);
+    setTotalCoins(data.coins);
+    if (engineRef.current) {
+      engineRef.current.setSkin(data.selectedSkin);
+      engineRef.current.setEntitySkin(data.selectedEntitySkin || 'entity_original');
+      engineRef.current.setOrbCosmetic(data.selectedOrbCosmetic || 'orb_default');
+    }
+  }, []);
+
+  // Rewarded 5-second revive
+  const handleRevive = useCallback(() => {
+    setHasRevivedThisRun(true);
+    setGameState('PLAYING');
+    engineRef.current?.revivePlayer();
+  }, []);
 
   // Claim Daily Challenge reward
   const handleClaimDailyReward = useCallback(
@@ -724,6 +798,8 @@ export default function App() {
             isNewRecord={finalRunResult.isNewRecord}
             newEndingId={finalRunResult.newEndingId}
             newFragments={finalRunResult.newFragments}
+            canRevive={!hasRevivedThisRun}
+            onRevive={handleRevive}
             onPlayAgain={handleStartGame}
             onOpenCustomize={() => setGameState('CUSTOMIZE')}
             onOpenAchievements={() => setGameState('ACHIEVEMENTS')}
@@ -755,10 +831,22 @@ export default function App() {
         {gameState === 'CUSTOMIZE' && (
           <CustomizeModal
             currentSkin={selectedSkin}
+            currentEntitySkin={selectedEntitySkin}
+            currentOrbCosmetic={selectedOrbCosmetic}
             unlockedSkins={unlockedSkins}
+            unlockedEntitySkins={unlockedEntitySkins}
+            unlockedOrbCosmetics={unlockedOrbCosmetics}
+            purchasedBundles={purchasedBundles}
+            adsRemoved={adsRemoved}
+            fullStoryUnlocked={fullStoryUnlocked}
+            supporterPackUnlocked={supporterPackUnlocked}
             totalCoins={totalCoins}
             onSelectSkin={handleSelectSkin}
-            onBuySkin={handleBuySkin}
+            onSelectEntitySkin={handleSelectEntitySkin}
+            onSelectOrbCosmetic={handleSelectOrbCosmetic}
+            onBuySkinWithOrbs={handleBuySkinWithOrbs}
+            onBuyEntitySkinWithOrbs={handleBuyEntitySkinWithOrbs}
+            onPurchaseSuccess={handlePurchaseSuccess}
             onClose={() => setGameState('MENU')}
           />
         )}

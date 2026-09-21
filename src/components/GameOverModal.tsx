@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   RotateCcw,
   Share2,
@@ -12,11 +12,13 @@ import {
   Eye,
   ArrowRight,
   Globe,
+  Zap,
 } from 'lucide-react';
 import { sound } from '../services/audio';
 import { i18n } from '../services/i18n';
 import { GAME_ENDINGS } from '../data/storyData';
 import { GameEnding } from '../types';
+import { ads } from '../services/ads';
 
 interface GameOverModalProps {
   score: number;
@@ -27,6 +29,8 @@ interface GameOverModalProps {
   distance?: number;
   newEndingId?: string | null;
   newFragments?: string[];
+  canRevive?: boolean;
+  onRevive?: () => void;
   onPlayAgain: () => void;
   onOpenCustomize: () => void;
   onOpenAchievements: () => void;
@@ -46,6 +50,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   distance = 0,
   newEndingId,
   newFragments = [],
+  canRevive = false,
+  onRevive,
   onPlayAgain,
   onOpenCustomize,
   onOpenAchievements,
@@ -56,7 +62,35 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onBackToMenu,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [reviveTimer, setReviveTimer] = useState(5);
+  const [isReviving, setIsReviving] = useState(false);
   const lang = i18n.getLanguage();
+  const adsRemoved = ads.isAdsRemoved();
+
+  // 5-second countdown timer for second chance revive
+  useEffect(() => {
+    if (!canRevive || !onRevive) return;
+    if (reviveTimer <= 0) return;
+
+    const interval = setInterval(() => {
+      setReviveTimer((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [canRevive, onRevive, reviveTimer]);
+
+  const handleTriggerRevive = () => {
+    if (!onRevive || isReviving) return;
+    setIsReviving(true);
+    sound.playClick();
+
+    ads.showRewarded('rewarded_second_chance', () => {
+      sound.playAchievement();
+      onRevive();
+    }, () => {
+      setIsReviving(false);
+    });
+  };
 
   const unlockedEndingData = newEndingId
     ? GAME_ENDINGS.find((e) => e.id === newEndingId)
@@ -112,6 +146,36 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         <h2 className="text-4xl font-black tracking-tight text-white font-['Chakra_Petch'] uppercase drop-shadow-[0_0_15px_rgba(239,68,68,0.4)]">
           {i18n.t('gameOver')}
         </h2>
+
+        {/* 5-Second Second Chance Rewarded Revive Choice */}
+        {canRevive && onRevive && reviveTimer > 0 && (
+          <div className="w-full my-3 p-3 rounded-2xl bg-gradient-to-r from-cyan-950/80 via-slate-900 to-sky-950/80 border border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.25)] flex flex-col items-center">
+            <div className="flex items-center justify-between w-full mb-2">
+              <div className="flex items-center gap-1.5 text-cyan-400 font-black text-xs font-['Chakra_Petch'] uppercase tracking-wider">
+                <Zap className="w-4 h-4 fill-cyan-400" />
+                <span>{lang === 'id' ? 'KESEMPATAN KEDUA' : 'SECOND CHANCE'}</span>
+              </div>
+              <span className="text-xs font-mono font-black text-amber-400 px-2 py-0.5 rounded-full bg-slate-950 border border-amber-500/40 animate-pulse">
+                {reviveTimer}s
+              </span>
+            </div>
+
+            <button
+              id="btn-revive-second-chance"
+              type="button"
+              disabled={isReviving}
+              onClick={handleTriggerRevive}
+              className="w-full py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider font-['Chakra_Petch'] bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-400 hover:to-sky-400 text-slate-950 flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-95 transition-all"
+            >
+              <RotateCcw className="w-4 h-4 stroke-[3]" />
+              <span>
+                {adsRemoved
+                  ? (lang === 'id' ? '⚡ BANGKIT LANGSUNG (TANPA IKLAN)' : '⚡ INSTANT REVIVE (NO ADS)')
+                  : (lang === 'id' ? '▶ LIHAT IKLAN UNTUK BANGKIT' : '▶ WATCH AD TO REVIVE')}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Ending or Fragment Unlocked Alert */}
         {unlockedEndingData && (
