@@ -14,11 +14,6 @@ import {
   User,
   Ghost,
   Disc,
-  Terminal,
-  Sliders,
-  Wrench,
-  Eye,
-  EyeOff,
 } from 'lucide-react';
 import { SkinId, EntitySkinId, OrbCosmeticId } from '../types';
 import {
@@ -86,21 +81,14 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Developer / Admin QA Mode
-  const [qaModeActive, setQaModeActive] = useState(false);
-  const [qaUnlockAll, setQaUnlockAll] = useState(false);
-  const [qaForceEncrypted, setQaForceEncrypted] = useState(false);
-  const [qaBonusCoins, setQaBonusCoins] = useState(0);
-  const [headerClickCount, setHeaderClickCount] = useState(0);
-
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Effective State (Supports QA Overrides)
-  const effectiveCoins = totalCoins + qaBonusCoins;
-  const effectiveUnlockedSkins = qaUnlockAll ? PLAYER_SKINS.map((s) => s.id as SkinId) : unlockedSkins;
-  const effectiveUnlockedEntitySkins = qaUnlockAll ? ENTITY_SKINS.map((e) => e.id as EntitySkinId) : unlockedEntitySkins;
-  const effectiveUnlockedOrbCosmetics = qaUnlockAll ? ORB_COSMETICS.map((o) => o.id as OrbCosmeticId) : unlockedOrbCosmetics;
-  const effectivePurchasedBundles = qaUnlockAll ? BUNDLES.map((b) => b.id) : purchasedBundles;
+  // Player State
+  const effectiveCoins = totalCoins;
+  const effectiveUnlockedSkins = unlockedSkins;
+  const effectiveUnlockedEntitySkins = unlockedEntitySkins;
+  const effectiveUnlockedOrbCosmetics = unlockedOrbCosmetics;
+  const effectivePurchasedBundles = purchasedBundles;
 
   const showToast = (msg: string) => {
     setNotification(msg);
@@ -136,7 +124,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
         ctx.stroke();
 
         const pSkin = PLAYER_SKINS.find((s) => s.id === previewPlayerSkin);
-        const isEncrypted = qaForceEncrypted || (!effectiveUnlockedSkins.includes(previewPlayerSkin) && pSkin?.allowPreviewWhenLocked === false);
+        const isEncrypted = !effectiveUnlockedSkins.includes(previewPlayerSkin) && pSkin?.allowPreviewWhenLocked === false;
         renderCharacter(ctx, 110, 90, 'run', previewPlayerSkin, clock, 1.5, isEncrypted);
       } else if (activeTab === 'ENTITIES') {
         // Ground shadow & dark pedestal
@@ -146,7 +134,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
         ctx.fill();
 
         const eSkin = ENTITY_SKINS.find((e) => e.id === previewEntitySkin);
-        const isEncrypted = qaForceEncrypted || (!effectiveUnlockedEntitySkins.includes(previewEntitySkin) && eSkin?.allowPreviewWhenLocked === false);
+        const isEncrypted = !effectiveUnlockedEntitySkins.includes(previewEntitySkin) && eSkin?.allowPreviewWhenLocked === false;
         renderConsistentEntity(ctx, 110, 120, {
           stance: 'STALKING',
           animClock: clock,
@@ -177,30 +165,70 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
         ctx.lineTo(205, 120);
         ctx.stroke();
 
-        const pItem = previewBundle.itemIds.find((i) => i.type === 'player');
-        if (pItem) {
-          const skin = PLAYER_SKINS.find((s) => s.id === pItem.id);
-          const isEnc = qaForceEncrypted || (!effectiveUnlockedSkins.includes(pItem.id as SkinId) && skin?.allowPreviewWhenLocked === false);
-          renderCharacter(ctx, 65, 95, 'idle', pItem.id as SkinId, clock, 1.2, isEnc);
-        }
+        const pItems = previewBundle.itemIds.filter((i) => i.type === 'player');
+        const eItems = previewBundle.itemIds.filter((i) => i.type === 'entity');
+        const oItems = previewBundle.itemIds.filter((i) => i.type === 'orb');
+        const totalCharacters = pItems.length + eItems.length;
+        let charIndex = 0;
 
-        const eItem = previewBundle.itemIds.find((i) => i.type === 'entity');
-        if (eItem) {
+        // Render all players in the bundle
+        pItems.forEach((pItem) => {
+          const skin = PLAYER_SKINS.find((s) => s.id === pItem.id);
+          const isEnc = !effectiveUnlockedSkins.includes(pItem.id as SkinId) && skin?.allowPreviewWhenLocked === false;
+          let posX = 65;
+          let scale = 1.15;
+          if (totalCharacters === 1) {
+            posX = 110;
+          } else if (totalCharacters === 2) {
+            posX = charIndex === 0 ? 65 : 155;
+          } else if (totalCharacters === 3) {
+            posX = 38 + charIndex * 72;
+            scale = 0.95;
+          } else if (totalCharacters >= 4) {
+            posX = 28 + charIndex * 54;
+            scale = 0.85;
+          }
+          renderCharacter(ctx, posX, 95, 'idle', pItem.id as SkinId, clock, scale, isEnc);
+          charIndex++;
+        });
+
+        // Render all entities in the bundle
+        eItems.forEach((eItem) => {
           const ent = ENTITY_SKINS.find((e) => e.id === eItem.id);
-          const isEnc = qaForceEncrypted || (!effectiveUnlockedEntitySkins.includes(eItem.id as EntitySkinId) && ent?.allowPreviewWhenLocked === false);
-          renderConsistentEntity(ctx, 155, 120, {
+          const isEnc = !effectiveUnlockedEntitySkins.includes(eItem.id as EntitySkinId) && ent?.allowPreviewWhenLocked === false;
+          let posX = 155;
+          let scale = 0.55;
+          if (totalCharacters === 1) {
+            posX = 110;
+            scale = 0.7;
+          } else if (totalCharacters === 2) {
+            posX = charIndex === 0 ? 65 : 155;
+          } else if (totalCharacters === 3) {
+            posX = 38 + charIndex * 72;
+            scale = 0.48;
+          } else if (totalCharacters >= 4) {
+            posX = 28 + charIndex * 54;
+            scale = 0.42;
+          }
+          renderConsistentEntity(ctx, posX, 120, {
             stance: 'STANDING',
             animClock: clock,
-            scale: 0.55,
+            scale,
             entitySkinId: eItem.id as EntitySkinId,
             isEncrypted: isEnc,
           });
-        }
+          charIndex++;
+        });
 
-        const oItem = previewBundle.itemIds.find((i) => i.type === 'orb');
-        if (oItem) {
-          renderOrbArtefact(ctx, 110, 36, oItem.id as OrbCosmeticId, clock, 0.95);
-        }
+        // Render all orbs in the bundle floating overhead
+        oItems.forEach((oItem, oIdx) => {
+          let orbX = 110;
+          let orbY = 34;
+          if (oItems.length > 1) {
+            orbX = 70 + oIdx * 80;
+          }
+          renderOrbArtefact(ctx, orbX, orbY, oItem.id as OrbCosmeticId, clock, 0.9);
+        });
       } else {
         // SPECIALS icon glow
         ctx.shadowColor = '#38bdf8';
@@ -224,7 +252,6 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
     previewBundle,
     effectiveUnlockedSkins,
     effectiveUnlockedEntitySkins,
-    qaForceEncrypted,
   ]);
 
   // Handle Real-Money Simulation Purchase via DummyPurchaseService
@@ -280,37 +307,9 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
         <div className="flex justify-between items-center pb-3 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-cyan-400" />
-            <h2
-              onClick={() => {
-                const next = headerClickCount + 1;
-                setHeaderClickCount(next);
-                if (next >= 3) {
-                  setQaModeActive(!qaModeActive);
-                  setHeaderClickCount(0);
-                  showToast(!qaModeActive ? 'QA MODE ACTIVATED' : 'QA MODE DEACTIVATED');
-                }
-              }}
-              className="text-lg sm:text-xl font-black text-white uppercase font-['Chakra_Petch'] tracking-wider cursor-pointer select-none title='Click 3 times for Dev QA Mode'"
-            >
+            <h2 className="text-lg sm:text-xl font-black text-white uppercase font-['Chakra_Petch'] tracking-wider select-none">
               DON’T BLINK STORE & LOCKER
             </h2>
-            <button
-              id="btn-qa-toggle"
-              type="button"
-              onClick={() => {
-                setQaModeActive(!qaModeActive);
-                showToast(!qaModeActive ? 'DEV QA MODE ENABLED' : 'DEV QA MODE CLOSED');
-              }}
-              title="Toggle Developer QA Mode"
-              className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 border cursor-pointer transition-all ${
-                qaModeActive
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                  : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Terminal className="w-2.5 h-2.5" />
-              <span>QA</span>
-            </button>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -334,133 +333,6 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             </button>
           </div>
         </div>
-
-        {/* DEVELOPER / ADMIN QA PANEL */}
-        {qaModeActive && (
-          <div className="my-2 p-2.5 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs shrink-0 animate-fadeIn space-y-2">
-            <div className="flex items-center justify-between border-b border-amber-500/30 pb-1.5">
-              <div className="flex items-center gap-1.5 font-black font-mono tracking-wider text-[11px] text-amber-400">
-                <Terminal className="w-3.5 h-3.5" />
-                <span>DEV / ADMIN QA HARNESS [ACTIVE]</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-amber-300/70 font-mono">
-                  {qaUnlockAll ? 'ALL UNLOCKED (TEST)' : 'PLAYER STATE'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setQaModeActive(false)}
-                  className="px-1.5 py-0.5 rounded text-[10px] bg-amber-900/60 hover:bg-amber-800 text-amber-200 cursor-pointer"
-                >
-                  HIDE QA
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              {/* Unlock All Override */}
-              <button
-                id="qa-btn-unlock-all"
-                type="button"
-                onClick={() => {
-                  setQaUnlockAll(!qaUnlockAll);
-                  showToast(!qaUnlockAll ? 'QA: Unlocked all skins & bundles for testing' : 'QA: Restored actual player unlocks');
-                }}
-                className={`px-2.5 py-1 rounded-lg font-bold font-mono text-[10px] flex items-center gap-1 cursor-pointer transition-all ${
-                  qaUnlockAll
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                }`}
-              >
-                <Zap className="w-3 h-3" />
-                <span>{qaUnlockAll ? 'UNLOCK ALL: ON' : 'UNLOCK ALL: OFF'}</span>
-              </button>
-
-              {/* Force Encrypted Silhouette Override */}
-              <button
-                id="qa-btn-force-censor"
-                type="button"
-                onClick={() => {
-                  setQaForceEncrypted(!qaForceEncrypted);
-                  showToast(!qaForceEncrypted ? 'QA: Force encrypted silhouette preview ENABLED' : 'QA: Encrypted silhouettes disabled');
-                }}
-                className={`px-2.5 py-1 rounded-lg font-bold font-mono text-[10px] flex items-center gap-1 cursor-pointer transition-all ${
-                  qaForceEncrypted
-                    ? 'bg-purple-600 text-white shadow-md'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                }`}
-              >
-                {qaForceEncrypted ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                <span>{qaForceEncrypted ? 'FORCE CENSOR: ON' : 'FORCE CENSOR: OFF'}</span>
-              </button>
-
-              {/* Add 10k Test Orbs */}
-              <button
-                id="qa-btn-add-coins"
-                type="button"
-                onClick={() => {
-                  setQaBonusCoins((prev) => prev + 10000);
-                  showToast('QA: Added 10,000 Test Orbs');
-                }}
-                className="px-2.5 py-1 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-slate-950 font-bold font-mono text-[10px] flex items-center gap-1 cursor-pointer"
-              >
-                <Coins className="w-3 h-3" />
-                <span>+10K ORBS</span>
-              </button>
-
-              {/* Reset Test State */}
-              <button
-                id="qa-btn-reset"
-                type="button"
-                onClick={() => {
-                  setQaUnlockAll(false);
-                  setQaForceEncrypted(false);
-                  setQaBonusCoins(0);
-                  showToast('QA: Reset overrides to default player state');
-                }}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold font-mono text-[10px] flex items-center gap-1 border border-slate-700 cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>RESET QA</span>
-              </button>
-
-              {/* Rapid Jump Dropdowns */}
-              <select
-                aria-label="QA Quick Select Runner"
-                value={previewPlayerSkin}
-                onChange={(e) => {
-                  setActiveTab('PLAYERS');
-                  setPreviewPlayerSkin(e.target.value as SkinId);
-                }}
-                className="bg-slate-900 border border-slate-700 text-slate-300 text-[10px] rounded-lg px-2 py-1 font-mono cursor-pointer"
-              >
-                <option value="" disabled>Jump to Runner...</option>
-                {PLAYER_SKINS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.rarity})
-                  </option>
-                ))}
-              </select>
-
-              <select
-                aria-label="QA Quick Select Entity"
-                value={previewEntitySkin}
-                onChange={(e) => {
-                  setActiveTab('ENTITIES');
-                  setPreviewEntitySkin(e.target.value as EntitySkinId);
-                }}
-                className="bg-slate-900 border border-slate-700 text-slate-300 text-[10px] rounded-lg px-2 py-1 font-mono cursor-pointer"
-              >
-                <option value="" disabled>Jump to Entity...</option>
-                {ENTITY_SKINS.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name} ({e.rarity})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
 
         {/* Tab Navigation */}
         <div className="flex items-center gap-1 sm:gap-2 my-3 overflow-x-auto pb-1 shrink-0 scrollbar-none border-b border-slate-800/60">
@@ -906,7 +778,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                 if (itemRef.type === 'player') {
                   const skin = PLAYER_SKINS.find((s) => s.id === itemRef.id);
                   const isUnlocked = effectiveUnlockedSkins.includes(itemRef.id as SkinId);
-                  const isEncrypted = (!isUnlocked && skin?.allowPreviewWhenLocked === false) || (qaForceEncrypted && !isUnlocked);
+                  const isEncrypted = !isUnlocked && skin?.allowPreviewWhenLocked === false;
                   return {
                     type: 'RUNNER' as const,
                     id: itemRef.id,
@@ -920,7 +792,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                 } else if (itemRef.type === 'entity') {
                   const entity = ENTITY_SKINS.find((e) => e.id === itemRef.id);
                   const isUnlocked = effectiveUnlockedEntitySkins.includes(itemRef.id as EntitySkinId);
-                  const isEncrypted = (!isUnlocked && entity?.allowPreviewWhenLocked === false) || (qaForceEncrypted && !isUnlocked);
+                  const isEncrypted = !isUnlocked && entity?.allowPreviewWhenLocked === false;
                   return {
                     type: 'ENTITY' as const,
                     id: itemRef.id,
@@ -1088,7 +960,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   const unlocked = effectiveUnlockedSkins.includes(sId);
                   const isSelected = previewPlayerSkin === sId;
                   const isEquipped = currentSkin === sId;
-                  const isEncrypted = (!s.allowPreviewWhenLocked && !unlocked) || (qaForceEncrypted && !unlocked);
+                  const isEncrypted = !s.allowPreviewWhenLocked && !unlocked;
                   const cost = s.costCoins || 0;
 
                   return (
@@ -1162,7 +1034,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   const unlocked = effectiveUnlockedEntitySkins.includes(eId);
                   const isSelected = previewEntitySkin === eId;
                   const isEquipped = currentEntitySkin === eId;
-                  const isEncrypted = (!e.allowPreviewWhenLocked && !unlocked) || (qaForceEncrypted && !unlocked);
+                  const isEncrypted = !e.allowPreviewWhenLocked && !unlocked;
                   const cost = e.costCoins || 0;
 
                   return (

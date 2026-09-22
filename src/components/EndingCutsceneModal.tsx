@@ -219,6 +219,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
   const reqFrameRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playerSkin = storage.getData().selectedSkin || 'default';
+  const entitySkin = storage.getData().selectedEntitySkin || 'entity_original';
 
   const endingId = ending?.id || 'ending_01';
   const config = ENDING_CONFIGS[endingId] || ENDING_CONFIGS.ending_01;
@@ -251,7 +252,7 @@ export const EndingCutsceneModal: React.FC<EndingCutsceneModalProps> = ({ ending
       // Render dynamic 60fps ending canvas scene
       const ctx = canvasRef.current?.getContext('2d');
       if (ctx) {
-        renderEndingScene(ctx, endingId, sec, playerSkin);
+        renderEndingScene(ctx, endingId, sec, playerSkin, entitySkin);
       }
 
       // Determine active dialogue line with precise start and duration window

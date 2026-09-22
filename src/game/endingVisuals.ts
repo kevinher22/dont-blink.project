@@ -1,4 +1,4 @@
-import { SkinId } from '../types';
+import { SkinId, EntitySkinId } from '../types';
 import { renderCharacter } from './characterRenderer';
 import { renderConsistentEntity } from './entityVisuals';
 
@@ -11,7 +11,8 @@ export function renderEndingScene(
   ctx: CanvasRenderingContext2D,
   endingId: string,
   timeSec: number,
-  playerSkin: SkinId = 'default'
+  playerSkin: SkinId = 'default',
+  entitySkin: EntitySkinId = 'entity_original'
 ): void {
   const W = 960;
   const H = 540;
@@ -21,28 +22,28 @@ export function renderEndingScene(
 
   switch (endingId) {
     case 'ending_01':
-      renderEscapeScene(ctx, W, H, timeSec, playerSkin);
+      renderEscapeScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_02':
-      renderTruthScene(ctx, W, H, timeSec, playerSkin);
+      renderTruthScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_03':
-      renderBlinkedScene(ctx, W, H, timeSec, playerSkin);
+      renderBlinkedScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_04':
-      renderThingFollowsScene(ctx, W, H, timeSec, playerSkin);
+      renderThingFollowsScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_05':
-      renderMemoryScene(ctx, W, H, timeSec, playerSkin);
+      renderMemoryScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_06':
-      renderFalseEscapeScene(ctx, W, H, timeSec, playerSkin);
+      renderFalseEscapeScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 'ending_07':
-      renderDontBlinkTrueEndingScene(ctx, W, H, timeSec, playerSkin);
+      renderDontBlinkTrueEndingScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     default:
-      renderEscapeScene(ctx, W, H, timeSec, playerSkin);
+      renderEscapeScene(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
   }
 
@@ -66,7 +67,8 @@ function renderEscapeScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Sunlight dawn gradient
   const bg = ctx.createLinearGradient(0, 0, W, 0);
@@ -133,6 +135,7 @@ function renderEscapeScene(
     animTime: t,
     eyeGlowIntensity: Math.max(0.3, 1.0 - t * 0.1),
     distanceToPlayer: 400,
+    entitySkinId: entitySkin,
   });
 
   // Runner running towards the daylight
@@ -150,7 +153,8 @@ function renderTruthScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Dark cyber background
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -222,6 +226,7 @@ function renderTruthScene(
     animTime: t,
     eyeGlowIntensity: 1.2,
     distanceToPlayer: 320,
+    entitySkinId: entitySkin,
   });
 }
 
@@ -235,7 +240,8 @@ function renderBlinkedScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Blood-red flashing emergency corridor
   const flash = Math.sin(t * 12) * 0.5 + 0.5;
@@ -279,6 +285,7 @@ function renderBlinkedScene(
     animTime: t * 1.5,
     eyeGlowIntensity: 1.8 + flash * 0.8,
     distanceToPlayer: 120,
+    entitySkinId: entitySkin,
   });
 
   // Glitch scanline bars
@@ -298,7 +305,8 @@ function renderThingFollowsScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Quiet blue-purple mist
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -334,6 +342,7 @@ function renderThingFollowsScene(
     animTime: t * 0.7,
     eyeGlowIntensity: 0.9 + Math.sin(t * 2) * 0.2,
     distanceToPlayer: 240,
+    entitySkinId: entitySkin,
   });
 
   // Soft glowing bridge of light particles between them
@@ -356,7 +365,8 @@ function renderMemoryScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Celestial indigo deep void
   const bg = ctx.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, W * 0.7);
@@ -416,6 +426,7 @@ function renderMemoryScene(
     animTime: t,
     eyeGlowIntensity: 1.3,
     distanceToPlayer: 280,
+    entitySkinId: entitySkin,
   });
 }
 
@@ -428,7 +439,8 @@ function renderFalseEscapeScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Dark void background
   ctx.fillStyle = '#05070e';
@@ -481,6 +493,7 @@ function renderFalseEscapeScene(
     stance: 'STANDING',
     animTime: t,
     eyeGlowIntensity: 0.8,
+    entitySkinId: entitySkin,
   });
 
   // 2. Medium depth
@@ -490,6 +503,7 @@ function renderFalseEscapeScene(
     stance: 'STANDING',
     animTime: t,
     eyeGlowIntensity: 1.0,
+    entitySkinId: entitySkin,
   });
 
   // 3. Foreground depth
@@ -499,6 +513,7 @@ function renderFalseEscapeScene(
     stance: 'STANDING',
     animTime: t,
     eyeGlowIntensity: 1.4,
+    entitySkinId: entitySkin,
   });
 
   // Chromatic glitch flicker
@@ -517,7 +532,8 @@ function renderDontBlinkTrueEndingScene(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Celestial aurora sky gradient
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -596,6 +612,7 @@ function renderDontBlinkTrueEndingScene(
     animTime: t,
     eyeGlowIntensity: 1.5,
     distanceToPlayer: 210,
+    entitySkinId: entitySkin,
   });
 
   // Energy ribbons harmonizing player and entity

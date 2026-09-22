@@ -109,6 +109,7 @@ export const FinalStoryCutsceneModal: React.FC<FinalStoryCutsceneModalProps> = (
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shotStartTimeRef = useRef<number>(Date.now());
   const playerSkin = storage.getData().selectedSkin || 'default';
+  const entitySkin = storage.getData().selectedEntitySkin || 'entity_original';
 
   const shot1Images = [
     '/assets/story/endings/ending-01-the-escape.svg',
@@ -166,13 +167,13 @@ export const FinalStoryCutsceneModal: React.FC<FinalStoryCutsceneModalProps> = (
       const sec = (Date.now() - shotStartTimeRef.current) / 1000;
       const ctx = canvasRef.current?.getContext('2d');
       if (ctx && currentShotIndex > 0) {
-        renderFinalStoryScene(ctx, currentShotIndex, sec, playerSkin);
+        renderFinalStoryScene(ctx, currentShotIndex, sec, playerSkin, entitySkin);
       }
       animFrame = requestAnimationFrame(renderTick);
     };
     animFrame = requestAnimationFrame(renderTick);
     return () => cancelAnimationFrame(animFrame);
-  }, [isOpen, currentShotIndex, playerSkin]);
+  }, [isOpen, currentShotIndex, playerSkin, entitySkin]);
 
   if (!isOpen) return null;
 

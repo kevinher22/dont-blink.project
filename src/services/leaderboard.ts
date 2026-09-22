@@ -107,6 +107,10 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
     }
   }
 
+  public getClient(): SupabaseClient | null {
+    return this.client;
+  }
+
   public isOnline(): boolean {
     return !!(this.client && this.anonKey && this.anonKey.trim() !== '');
   }
@@ -286,3 +290,7 @@ export class SupabaseLeaderboardService implements ILeaderboardService {
 
 // Export singleton instance
 export const leaderboardService: ILeaderboardService = new SupabaseLeaderboardService();
+
+export function getSupabaseClient(): SupabaseClient | null {
+  return (leaderboardService as SupabaseLeaderboardService).getClient();
+}

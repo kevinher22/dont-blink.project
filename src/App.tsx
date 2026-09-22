@@ -121,6 +121,7 @@ export default function App() {
 
   // Load Initial Persistent Data
   useEffect(() => {
+    storage.reconcilePurchases();
     const data = storage.getData();
     setBestScore(data.bestScore);
     setTotalCoins(data.coins);

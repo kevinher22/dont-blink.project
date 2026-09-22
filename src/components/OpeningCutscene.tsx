@@ -327,6 +327,7 @@ export const OpeningCutscene: React.FC<OpeningCutsceneProps> = ({ onComplete }) 
           scale: Math.min(1.4, 0.9 + (anim.entityX / 400) * 0.5),
           facingRight: true,
           showRedAura: true,
+          entitySkinId: storage.getData().selectedEntitySkin || 'entity_original',
         });
       }
 

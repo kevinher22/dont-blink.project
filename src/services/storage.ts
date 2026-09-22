@@ -12,8 +12,10 @@ import {
 } from '../types';
 import { GAME_CONSTANTS } from '../game/constants';
 import { securityService } from './security';
+import { BUNDLES, PLAYER_SKINS, ENTITY_SKINS, ORB_COSMETICS } from '../data/cosmeticsData';
 
 const STORAGE_KEY = 'dont_blink_save_v1';
+const PURCHASES_BACKUP_KEY = 'dont_blink_purchases_backup_v1';
 const CURRENT_VERSION = 2;
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -111,10 +113,60 @@ class DataManager {
     }
 
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { ...DEFAULT_SAVE_DATA };
+      let raw = localStorage.getItem(STORAGE_KEY);
+      let parsed = raw ? JSON.parse(raw) : null;
 
-      const parsed = JSON.parse(raw);
+      // Check secondary dedicated purchases backup
+      try {
+        const backupRaw = localStorage.getItem(PURCHASES_BACKUP_KEY);
+        if (backupRaw) {
+          const backup = JSON.parse(backupRaw);
+          if (backup && typeof backup === 'object') {
+            if (!parsed) {
+              parsed = { ...DEFAULT_SAVE_DATA };
+            }
+            // Merge backup purchases so accidental clears or corruption never wipes real ownership
+            if (Array.isArray(backup.purchasedBundles)) {
+              parsed.purchasedBundles = Array.from(
+                new Set([...(parsed.purchasedBundles || []), ...backup.purchasedBundles])
+              );
+            }
+            if (Array.isArray(backup.unlockedSkins)) {
+              parsed.unlockedSkins = Array.from(
+                new Set([...(parsed.unlockedSkins || []), ...backup.unlockedSkins])
+              );
+            }
+            if (Array.isArray(backup.unlockedEntitySkins)) {
+              parsed.unlockedEntitySkins = Array.from(
+                new Set([...(parsed.unlockedEntitySkins || []), ...backup.unlockedEntitySkins])
+              );
+            }
+            if (Array.isArray(backup.unlockedOrbCosmetics)) {
+              parsed.unlockedOrbCosmetics = Array.from(
+                new Set([...(parsed.unlockedOrbCosmetics || []), ...backup.unlockedOrbCosmetics])
+              );
+            }
+            if (Array.isArray(backup.purchaseHistory)) {
+              parsed.purchaseHistory = [
+                ...(parsed.purchaseHistory || []),
+                ...backup.purchaseHistory.filter(
+                  (bRec: PurchaseRecord) =>
+                    !(parsed.purchaseHistory || []).some(
+                      (pRec: PurchaseRecord) => pRec.transaction_id === bRec.transaction_id
+                    )
+                ),
+              ];
+            }
+            if (backup.fullStoryUnlocked) parsed.fullStoryUnlocked = true;
+            if (backup.supporterPackUnlocked) parsed.supporterPackUnlocked = true;
+            if (backup.adsRemoved) parsed.adsRemoved = true;
+          }
+        }
+      } catch {
+        // Non-blocking fallback
+      }
+
+      if (!parsed) return { ...DEFAULT_SAVE_DATA };
 
       // Safe migration logic: preserving all old high scores, coins, unlocked skins, etc.
       const settings: UserSettings = {
@@ -154,8 +206,11 @@ class DataManager {
         DEFAULT_SAVE_DATA
       );
 
+      // Reconcile purchases to guarantee all bundled items are unlocked
+      const reconciled = this.internalReconcile(sanitized);
+
       return {
-        ...sanitized,
+        ...reconciled,
         version: CURRENT_VERSION,
         achievements: parsed.achievements || {},
         history: Array.isArray(parsed.history) ? parsed.history : [],
@@ -164,6 +219,73 @@ class DataManager {
       console.warn("DON'T BLINK: Failed to parse localStorage data, using fallback.", e);
       return { ...DEFAULT_SAVE_DATA };
     }
+  }
+
+  /**
+   * Guarantees that any purchased bundles or purchase records correctly
+   * reflect all included Runner skins, Entity skins, and Orb cosmetics.
+   */
+  private internalReconcile(data: GameSaveData): GameSaveData {
+    const unlockedSkins = new Set<SkinId>(data.unlockedSkins || ['default']);
+    const unlockedEntitySkins = new Set<EntitySkinId>(data.unlockedEntitySkins || ['entity_original']);
+    const unlockedOrbCosmetics = new Set<OrbCosmeticId>(data.unlockedOrbCosmetics || ['orb_default']);
+    const purchasedBundles = new Set<string>(data.purchasedBundles || []);
+
+    // 1. Reconcile from purchasedBundles list
+    for (const bId of purchasedBundles) {
+      const bundle = BUNDLES.find((b) => b.id === bId);
+      if (bundle) {
+        for (const item of bundle.itemIds) {
+          if (item.type === 'player') unlockedSkins.add(item.id as SkinId);
+          if (item.type === 'entity') unlockedEntitySkins.add(item.id as EntitySkinId);
+          if (item.type === 'orb') unlockedOrbCosmetics.add(item.id as OrbCosmeticId);
+        }
+      }
+    }
+
+    // 2. Reconcile from purchaseHistory
+    for (const record of data.purchaseHistory || []) {
+      const pid = record.product_id;
+      if (pid === 'remove_ads') {
+        data.adsRemoved = true;
+      } else if (pid === 'full_story') {
+        data.fullStoryUnlocked = true;
+      } else if (pid === 'supporter_pack') {
+        data.supporterPackUnlocked = true;
+      } else if (pid.startsWith('bundle_')) {
+        purchasedBundles.add(pid);
+        const bundle = BUNDLES.find((b) => b.id === pid);
+        if (bundle) {
+          for (const item of bundle.itemIds) {
+            if (item.type === 'player') unlockedSkins.add(item.id as SkinId);
+            if (item.type === 'entity') unlockedEntitySkins.add(item.id as EntitySkinId);
+            if (item.type === 'orb') unlockedOrbCosmetics.add(item.id as OrbCosmeticId);
+          }
+        }
+      } else {
+        if (PLAYER_SKINS.some((s) => s.id === pid)) {
+          unlockedSkins.add(pid as SkinId);
+        }
+        if (ENTITY_SKINS.some((e) => e.id === pid)) {
+          unlockedEntitySkins.add(pid as EntitySkinId);
+        }
+        if (ORB_COSMETICS.some((o) => o.id === pid)) {
+          unlockedOrbCosmetics.add(pid as OrbCosmeticId);
+        }
+      }
+    }
+
+    data.unlockedSkins = Array.from(unlockedSkins);
+    data.unlockedEntitySkins = Array.from(unlockedEntitySkins);
+    data.unlockedOrbCosmetics = Array.from(unlockedOrbCosmetics);
+    data.purchasedBundles = Array.from(purchasedBundles);
+
+    return data;
+  }
+
+  public reconcilePurchases(): void {
+    this.inMemoryCache = this.internalReconcile(this.inMemoryCache);
+    this.save();
   }
 
   public getData(): Readonly<GameSaveData> {
@@ -179,6 +301,19 @@ class DataManager {
           _sig: sig,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+
+        // Persist dedicated secondary purchases backup
+        const purchasesBackup = {
+          purchasedBundles: this.inMemoryCache.purchasedBundles,
+          unlockedSkins: this.inMemoryCache.unlockedSkins,
+          unlockedEntitySkins: this.inMemoryCache.unlockedEntitySkins,
+          unlockedOrbCosmetics: this.inMemoryCache.unlockedOrbCosmetics,
+          purchaseHistory: this.inMemoryCache.purchaseHistory,
+          fullStoryUnlocked: this.inMemoryCache.fullStoryUnlocked,
+          supporterPackUnlocked: this.inMemoryCache.supporterPackUnlocked,
+          adsRemoved: this.inMemoryCache.adsRemoved,
+        };
+        localStorage.setItem(PURCHASES_BACKUP_KEY, JSON.stringify(purchasesBackup));
       } catch (e) {
         console.warn("DON'T BLINK: Could not persist to localStorage", e);
       }

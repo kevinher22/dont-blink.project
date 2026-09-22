@@ -3,9 +3,25 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
+  // Local development / preview on localhost (or root domain) uses '/'
+  // GitHub Pages production deployment uses '/dont-blink.project/'
+  const isGhPages =
+    process.env.GITHUB_PAGES === 'true' ||
+    process.env.GITHUB_ACTIONS === 'true' ||
+    process.env.DEPLOY_TARGET === 'gh-pages' ||
+    mode === 'gh-pages';
+
+  const base = process.env.VITE_BASE_PATH || (
+    command === 'serve'
+      ? '/'
+      : isGhPages
+        ? '/dont-blink.project/'
+        : '/'
+  );
+
   return {
-    base: '/dont-blink.project/',
+    base,
 
     plugins: [react(), tailwindcss()],
 

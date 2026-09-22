@@ -2,7 +2,7 @@
 // DON'T BLINK — Security, Anti-Cheat, Anti-Tamper & Anti-Abuse Engine
 // ==============================================================================
 
-import { SkinId, LeaderboardEntry, GameSaveData } from '../types';
+import { SkinId, EntitySkinId, OrbCosmeticId, LeaderboardEntry, GameSaveData } from '../types';
 
 const VALID_SKINS: readonly SkinId[] = [
   'default',
@@ -35,6 +35,55 @@ const VALID_SKINS: readonly SkinId[] = [
   'static_skin',
   'the_last_memory',
   'paradox',
+  'rust_nomad',
+  'cyber_courier',
+  'void_diver',
+  'glitch_weaver',
+  'aegis_vanguard',
+  'solar_nomad',
+  'chrono_detective',
+  'phantom_ronin',
+  'neon_aristocrat',
+  'astral_sovereign',
+];
+
+const VALID_ENTITY_SKINS: readonly EntitySkinId[] = [
+  'entity_original',
+  'entity_watcher',
+  'entity_machine',
+  'entity_artificial_angel',
+  'entity_fractured',
+  'entity_hollow',
+  'entity_old_one',
+  'entity_ashen',
+  'entity_red_shift',
+  'entity_white_signal',
+  'entity_clock',
+  'entity_archive',
+  'entity_redacted',
+  'entity_drowned',
+  'entity_paradox',
+  'entity_origin',
+  'entity_cryo_phantom',
+  'entity_neon_parasite',
+  'entity_chitin_colossus',
+  'entity_prismatic_shard',
+  'entity_iron_bell',
+  'entity_ocular_swarm',
+  'entity_wire_weaver',
+  'entity_solar_seraph',
+];
+
+const VALID_ORB_COSMETICS: readonly OrbCosmeticId[] = [
+  'orb_default',
+  'orb_memory_glass',
+  'orb_static_heart',
+  'orb_white_signal',
+  'orb_broken_clock',
+  'orb_paradox_seed',
+  'orb_heart_of_null',
+  'orb_red_shift_core',
+  'orb_angelic_failure',
 ];
 const VALID_ENDINGS = new Set([
   'ending_01',
@@ -377,6 +426,43 @@ class SecurityEngine {
       ? raw.selectedSkin
       : 'default';
 
+    // Sanitize unlocked entity skins
+    const rawEntitySkins = Array.isArray(raw.unlockedEntitySkins)
+      ? raw.unlockedEntitySkins
+      : ['entity_original'];
+    const unlockedEntitySkins: EntitySkinId[] = rawEntitySkins.filter((e: any): e is EntitySkinId =>
+      VALID_ENTITY_SKINS.includes(e)
+    );
+    if (!unlockedEntitySkins.includes('entity_original')) {
+      unlockedEntitySkins.unshift('entity_original');
+    }
+
+    const selectedEntitySkin: EntitySkinId = VALID_ENTITY_SKINS.includes(raw.selectedEntitySkin)
+      ? raw.selectedEntitySkin
+      : 'entity_original';
+
+    // Sanitize unlocked orb cosmetics
+    const rawOrbs = Array.isArray(raw.unlockedOrbCosmetics)
+      ? raw.unlockedOrbCosmetics
+      : ['orb_default'];
+    const unlockedOrbCosmetics: OrbCosmeticId[] = rawOrbs.filter((o: any): o is OrbCosmeticId =>
+      VALID_ORB_COSMETICS.includes(o)
+    );
+    if (!unlockedOrbCosmetics.includes('orb_default')) {
+      unlockedOrbCosmetics.unshift('orb_default');
+    }
+
+    const selectedOrbCosmetic: OrbCosmeticId = VALID_ORB_COSMETICS.includes(raw.selectedOrbCosmetic)
+      ? raw.selectedOrbCosmetic
+      : 'orb_default';
+
+    // Sanitize purchased bundles
+    const rawBundles = Array.isArray(raw.purchasedBundles) ? raw.purchasedBundles : [];
+    const purchasedBundles: string[] = rawBundles.filter((b: any) => typeof b === 'string');
+
+    // Sanitize purchase history
+    const purchaseHistory = Array.isArray(raw.purchaseHistory) ? raw.purchaseHistory : [];
+
     // Sanitize story state
     const rawStory = raw.story || {};
     const unlockedEndings: string[] = Array.isArray(rawStory.unlockedEndings)
@@ -390,6 +476,15 @@ class SecurityEngine {
       coins,
       selectedSkin,
       unlockedSkins,
+      selectedEntitySkin,
+      unlockedEntitySkins,
+      selectedOrbCosmetic,
+      unlockedOrbCosmetics,
+      purchasedBundles,
+      purchaseHistory,
+      fullStoryUnlocked: !!raw.fullStoryUnlocked,
+      supporterPackUnlocked: !!raw.supporterPackUnlocked,
+      adsRemoved: !!raw.adsRemoved,
       story: {
         ...defaultSave.story,
         ...rawStory,

@@ -1,4 +1,4 @@
-import { SkinId } from '../types';
+import { SkinId, EntitySkinId } from '../types';
 import { renderCharacter } from './characterRenderer';
 import { renderConsistentEntity } from './entityVisuals';
 
@@ -10,7 +10,8 @@ export function renderFinalStoryScene(
   ctx: CanvasRenderingContext2D,
   shotIndex: number,
   timeSec: number,
-  playerSkin: SkinId = 'default'
+  playerSkin: SkinId = 'default',
+  entitySkin: EntitySkinId = 'entity_original'
 ): void {
   const W = 960;
   const H = 540;
@@ -23,16 +24,16 @@ export function renderFinalStoryScene(
       renderSilentCorridorShot(ctx, W, H, timeSec, playerSkin);
       break;
     case 2: // Shot 3: Entity appears peacefully
-      renderEntityAppearanceShot(ctx, W, H, timeSec, playerSkin);
+      renderEntityAppearanceShot(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 3: // Shot 4: Confrontation without fear
-      renderPeacefulConfrontationShot(ctx, W, H, timeSec, playerSkin);
+      renderPeacefulConfrontationShot(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 4: // Shot 5: Memory convergence & neural link
-      renderMemoryConvergenceShot(ctx, W, H, timeSec, playerSkin);
+      renderMemoryConvergenceShot(ctx, W, H, timeSec, playerSkin, entitySkin);
       break;
     case 5: // Shot 6: Dramatic close-up reveal dialogue
-      renderEntityRevealDialogueShot(ctx, W, H, timeSec);
+      renderEntityRevealDialogueShot(ctx, W, H, timeSec, entitySkin);
       break;
     case 6: // Shot 7: The story continues...
       renderStoryContinuesShot(ctx, W, H, timeSec);
@@ -105,7 +106,8 @@ function renderEntityAppearanceShot(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Ambient hallway
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -131,6 +133,7 @@ function renderEntityAppearanceShot(
     animTime: t,
     eyeGlowIntensity: 1.0,
     distanceToPlayer: 320,
+    entitySkinId: entitySkin,
   });
 
   // Soft atmospheric particles between them
@@ -153,7 +156,8 @@ function renderPeacefulConfrontationShot(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Rich midnight indigo backdrop
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -179,6 +183,7 @@ function renderPeacefulConfrontationShot(
     animTime: t,
     eyeGlowIntensity: 1.2,
     distanceToPlayer: 180,
+    entitySkinId: entitySkin,
   });
 }
 
@@ -191,7 +196,8 @@ function renderMemoryConvergenceShot(
   W: number,
   H: number,
   t: number,
-  skin: SkinId
+  skin: SkinId,
+  entitySkin: EntitySkinId
 ): void {
   // Deep cosmic indigo
   const bg = ctx.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, W * 0.6);
@@ -250,6 +256,7 @@ function renderMemoryConvergenceShot(
     animTime: t,
     eyeGlowIntensity: 1.5,
     distanceToPlayer: 260,
+    entitySkinId: entitySkin,
   });
 
   // Connecting neural aurora thread
@@ -269,7 +276,8 @@ function renderEntityRevealDialogueShot(
   ctx: CanvasRenderingContext2D,
   W: number,
   H: number,
-  t: number
+  t: number,
+  entitySkin: EntitySkinId
 ): void {
   // Void blackness with cosmic nebula swirls
   ctx.fillStyle = '#02040a';
@@ -291,6 +299,7 @@ function renderEntityRevealDialogueShot(
     animTime: t,
     eyeGlowIntensity: 1.8 + Math.sin(t * 3) * 0.3,
     distanceToPlayer: 100,
+    entitySkinId: entitySkin,
   });
 }
 

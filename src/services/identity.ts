@@ -7,6 +7,7 @@ import { securityService } from './security';
 
 export const STORAGE_PLAYER_ID_KEY = 'dont_blink_player_id';
 export const STORAGE_PLAYER_NAME_KEY = 'dont_blink_player_name';
+export const STORAGE_AUTH_USER_ID_KEY = 'dont_blink_auth_user_id';
 
 /**
  * Generates an RFC4122 v4 compliant high-entropy UUID.
@@ -42,6 +43,34 @@ export function generatePlayerUUID(): string {
 // In-memory cache for fast, synchronous access
 let cachedGuestPlayerId: string | null = null;
 let activeAuthUserId: string | null = null;
+
+if (typeof window !== 'undefined') {
+  try {
+    const savedAuth = localStorage.getItem(STORAGE_AUTH_USER_ID_KEY);
+    if (savedAuth && savedAuth.trim().length > 0) {
+      activeAuthUserId = savedAuth.trim();
+    }
+  } catch {}
+}
+
+type IdentityChangeListener = (identity: PlayerIdentity) => void;
+const identityListeners: Set<IdentityChangeListener> = new Set();
+
+function notifyAuthChange(): void {
+  const current = getPlayerIdentity();
+  identityListeners.forEach((fn) => {
+    try {
+      fn(current);
+    } catch (e) {
+      console.error(e);
+    }
+  });
+}
+
+export function onPlayerIdentityChange(listener: IdentityChangeListener): () => void {
+  identityListeners.add(listener);
+  return () => identityListeners.delete(listener);
+}
 
 /**
  * Retrieves the persistent guest player ID from localStorage, or generates
@@ -116,6 +145,39 @@ export function setPlayerDisplayName(name: string): string {
  */
 export function setAuthenticatedUserId(userId: string | null): void {
   activeAuthUserId = userId && userId.trim().length > 0 ? userId.trim() : null;
+  if (typeof window !== 'undefined') {
+    try {
+      if (activeAuthUserId) {
+        localStorage.setItem(STORAGE_AUTH_USER_ID_KEY, activeAuthUserId);
+      } else {
+        localStorage.removeItem(STORAGE_AUTH_USER_ID_KEY);
+      }
+    } catch {
+      // Ignore private storage restrictions
+    }
+  }
+  notifyAuthChange();
+}
+
+/**
+ * Signs in as a specific account ID (for Supabase auth or persistent player profile).
+ * Ensures identity is authoritative and decoupled from display_name.
+ */
+export async function loginAsAccount(accountId: string, callsign?: string): Promise<PlayerIdentity> {
+  const cleanId = accountId.trim();
+  if (callsign && callsign.trim().length > 0) {
+    setPlayerDisplayName(callsign.trim());
+  }
+  setAuthenticatedUserId(cleanId || null);
+  return getPlayerIdentity();
+}
+
+/**
+ * Signs out of the authenticated account, falling back to persistent guest UUID.
+ */
+export async function logoutAccount(): Promise<PlayerIdentity> {
+  setAuthenticatedUserId(null);
+  return getPlayerIdentity();
 }
 
 /**

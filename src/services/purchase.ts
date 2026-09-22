@@ -205,10 +205,27 @@ export class DummyPurchaseService implements IPurchaseService {
   }
 
   public async restorePurchases(): Promise<{ success: boolean; count: number; message: string }> {
+    storage.reconcilePurchases();
     const data = storage.getData();
     const history = data.purchaseHistory || [];
+    const purchasedBundles = data.purchasedBundles || [];
     let count = 0;
 
+    // 1. Reconcile from purchased bundles
+    for (const bId of purchasedBundles) {
+      const bundle = BUNDLES.find((b) => b.id === bId);
+      if (bundle) {
+        storage.addPurchasedBundle(bundle.id);
+        for (const item of bundle.itemIds) {
+          if (item.type === 'player') storage.unlockSkinFree(item.id as SkinId);
+          if (item.type === 'entity') storage.unlockEntitySkinFree(item.id as EntitySkinId);
+          if (item.type === 'orb') storage.unlockOrbCosmetic(item.id as OrbCosmeticId);
+        }
+        count++;
+      }
+    }
+
+    // 2. Reconcile from history
     for (const record of history) {
       const pid = record.product_id;
       if (pid === 'remove_ads') {
@@ -247,6 +264,8 @@ export class DummyPurchaseService implements IPurchaseService {
         }
       }
     }
+
+    storage.save();
 
     return {
       success: true,
